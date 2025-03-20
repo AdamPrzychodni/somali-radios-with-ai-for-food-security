@@ -1,6 +1,6 @@
 # 📻 Leveraging Local Radio for Real-Time Food Security Insights: An AI-Powered Approach - Preliminary Phase 🇸🇴  
 
-This project, in collaboration with **Zero Hunger Lab**, analyzes Somali radio broadcasts to extract food security insights using **Speech-to-Text (STT)** and AI models. The goal is to assess whether radio stations provide timely and useful information to improve food security indicators.  
+This project, in collaboration with **Zero Hunger Lab**, analyzes Somali radio broadcasts to extract food security insights using **Speech-to-Text (STT)** and **LLMs**. The goal is to assess whether radio stations provide timely and useful information to improve food security indicators.  
 
 ---
 
