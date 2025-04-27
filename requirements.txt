@@ -1,0 +1,12 @@
+google-genai
+nltk
+openpyxl
+pandas
+geopandas
+pdfplumber
+fuzzywuzzy
+torch
+torchaudio
+soundfile
+pydub
+elevenlabs
