@@ -1,1 +1,55 @@
+# Environment variables (NEVER commit these!)
 .env
+.env.local
+.env.production
+
+# Google Cloud credentials (CRITICAL - never commit!)
+*.json
+service-account-*.json
+gcs-key.json
+credentials.json
+*-credentials.json
+*-key.json
+
+# Downloaded content
+downloads/
+data/
+*.mp3
+*.mp4
+*.wav
+*.m4a
+
+# Logs
+*.log
+.download_log.json
+downloader.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+.cache/
+
+# But DO commit these example files
+!.env.example
+!README.md
+!requirements.txt
