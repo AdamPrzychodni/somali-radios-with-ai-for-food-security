@@ -1,491 +1,747 @@
 """
-SoundCloud Downloader for Linux - Fixed FFmpeg Integration
-Properly handles ffmpeg path detection and passing to yt-dlp
+Production-ready SoundCloud ASR Transcription Pipeline.
+Self-contained batch processor with crash recovery and resumption support.
+Designed for multi-year data collection runs (2020-2025).
 """
 
 import os
 import re
-import subprocess
-import sys
-from datetime import datetime, timedelta
-import yt_dlp
-import requests
-import time
 import hashlib
 import json
+import time
 import shutil
+import tempfile
+import argparse
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional, Dict, Tuple, List
+import io
+
+import yt_dlp
+import pandas as pd
+import torch
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+import librosa
+from tqdm import tqdm
+
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except ImportError:
+    PYDUB_AVAILABLE = False
 
 
-class SoundCloudDownloader:
-    def __init__(self, output_dir="downloads"):
-        # Convert to absolute path and create directory structure
-        self.output_dir = os.path.abspath(output_dir)
-        self.ffmpeg_path = None
-        self.download_log = {}
-        self.log_file = os.path.join(self.output_dir, ".download_log.json")
-        
-        # Create output directory if it doesn't exist (including parent directories)
-        os.makedirs(self.output_dir, exist_ok=True)
-        print(f"📁 Output directory set to: {self.output_dir}")
-        
-        # Load download log
-        self.load_download_log()
-        
-        # Setup ffmpeg on initialization
-        self.setup_ffmpeg()
+# ============================================================================
+# ASR ENGINE
+# ============================================================================
+
+class SomaliASREngine:
+    """Transcription engine using Mustafaa4a/ASR-Somali model."""
     
-    def load_download_log(self):
-        """Load the download log from file."""
-        if os.path.exists(self.log_file):
+    def __init__(self, model_name: str = "Mustafaa4a/ASR-Somali", verbose: bool = False):
+        """
+        Initialize Somali ASR model.
+        
+        Args:
+            model_name: HuggingFace model identifier
+            verbose: If True, print detailed loading information
+        """
+        self.processor = None
+        self.model = None
+        self.device = "cpu"
+        self.verbose = verbose
+        self._setup_model(model_name)
+
+    def _setup_model(self, model_name: str) -> None:
+        """
+        Load Wav2Vec2 model and processor.
+        
+        Raises:
+            RuntimeError: If model fails to load
+        """
+        if self.verbose:
+            print(f"Loading ASR model: {model_name}")
+            
+        try:
+            self.processor = Wav2Vec2Processor.from_pretrained(model_name)
+            self.model = Wav2Vec2ForCTC.from_pretrained(model_name)
+            
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model.to(self.device)
+            
+            if self.verbose:
+                print(f"✓ Model loaded on {self.device.upper()}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load ASR model: {e}")
+
+    def transcribe_from_memory(self, audio_data: bytes) -> str:
+        """
+        Transcribe audio from memory buffer.
+
+        Args:
+            audio_data: Raw audio bytes
+
+        Returns:
+            Transcribed text
+            
+        Raises:
+            ValueError: If transcription fails
+        """
+        target_sr = 16000
+        
+        try:
+            # Load and resample audio
+            audio, sr = librosa.load(io.BytesIO(audio_data), sr=target_sr)
+            
+            # Adaptive chunk sizing based on device
+            chunk_length_s = 45 if self.device == 'cuda' else 20
+            chunk_length = chunk_length_s * target_sr
+            
+            transcriptions = []
+            
+            # Process in chunks
+            for i in range(0, len(audio), chunk_length):
+                chunk = audio[i:i + chunk_length]
+                
+                input_values = self.processor(
+                    chunk,
+                    sampling_rate=target_sr,
+                    return_tensors="pt",
+                    padding=True
+                ).input_values.to(self.device)
+                
+                with torch.no_grad():
+                    logits = self.model(input_values).logits
+                
+                predicted_ids = torch.argmax(logits, dim=-1)
+                transcription = self.processor.batch_decode(predicted_ids)[0]
+                transcriptions.append(transcription)
+            
+            return " ".join(transcriptions).strip()
+
+        except Exception as e:
+            raise ValueError(f"Transcription failed: {e}")
+
+
+# ============================================================================
+# DOWNLOADER & PROCESSOR
+# ============================================================================
+
+class StreamingSoundCloudDownloader:
+    """
+    Batch processor for SoundCloud audio with Somali ASR transcription.
+    Optimized for long date ranges with minimal metadata overhead.
+    """
+    
+    def __init__(self, output_dir: str, output_format: str = "structured", verbose: bool = False):
+        """
+        Initialize downloader.
+        
+        Args:
+            output_dir: Directory for outputs
+            output_format: 'structured' (CSV), 'txt', or 'both'
+            verbose: Enable detailed logging
+        """
+        self.output_dir = Path(output_dir)
+        self.output_format = output_format
+        self.verbose = verbose
+        self.ffmpeg_path = self._find_ffmpeg()
+        
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.log_file = self.output_dir / ".transcription_log.json"
+        self.structured_data_file = self.output_dir / "transcriptions_database.csv"
+        
+        self.transcription_log = self._load_transcription_log()
+        self._init_structured_storage()
+        
+        self.transcription_engine = SomaliASREngine(verbose=verbose)
+
+    def _find_ffmpeg(self) -> Optional[str]:
+        """Locate ffmpeg binary."""
+        if self.verbose:
+            print("Checking for ffmpeg...")
+            
+        ffmpeg_path = shutil.which('ffmpeg')
+        if ffmpeg_path:
+            if self.verbose:
+                print(f"✓ Found ffmpeg: {ffmpeg_path}")
+            return ffmpeg_path
+        
+        # Check common locations
+        for location in ['/usr/bin/ffmpeg', '/home/zeus/miniconda3/bin/ffmpeg']:
+            if Path(location).exists():
+                if self.verbose:
+                    print(f"✓ Found ffmpeg: {location}")
+                return location
+                
+        if self.verbose:
+            print("⚠️ ffmpeg not found")
+        return None
+
+    def _init_structured_storage(self) -> None:
+        """Initialize CSV database with minimal essential columns."""
+        if not self.structured_data_file.exists():
+            columns = [
+                'id',
+                'url',
+                'title',
+                'date_recorded',
+                'date_processed',
+                'processing_duration_seconds',
+                'audio_size_mb',
+                'audio_duration_seconds',
+                'transcript_length_chars',
+                'transcript_length_words',
+                'transcript_text'
+            ]
+            pd.DataFrame(columns=columns).to_csv(self.structured_data_file, index=False)
+
+    def _load_transcription_log(self) -> Dict:
+        """Load processing log to skip already-processed URLs."""
+        if self.log_file.exists():
             try:
                 with open(self.log_file, 'r') as f:
-                    self.download_log = json.load(f)
-                print(f"📋 Loaded download log with {len(self.download_log)} entries")
-            except Exception as e:
-                print(f"⚠ Could not load download log: {e}")
-                self.download_log = {}
-        else:
-            print("📋 Starting with empty download log")
-    
-    def save_download_log(self):
-        """Save the download log to file."""
-        try:
-            with open(self.log_file, 'w') as f:
-                json.dump(self.download_log, f, indent=2)
-        except Exception as e:
-            print(f"Warning: Could not save download log: {e}")
-    
-    def find_ffmpeg(self):
-        """Find ffmpeg binary in system."""
-        # Check if ffmpeg is in PATH using shutil.which
-        ffmpeg_in_path = shutil.which('ffmpeg')
-        if ffmpeg_in_path:
-            return ffmpeg_in_path
+                    return json.load(f)
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+    def _save_transcription_log(self) -> None:
+        """Persist processing log."""
+        with open(self.log_file, 'w') as f:
+            json.dump(self.transcription_log, f, indent=2)
+
+    def _download_to_memory(self, url: str) -> Tuple[Optional[bytes], Dict]:
+        """
+        Download audio to memory buffer.
         
-        # Common locations to check
-        common_locations = [
-            '/usr/bin/ffmpeg',
-            '/usr/local/bin/ffmpeg',
-            '/opt/homebrew/bin/ffmpeg',
-            '/snap/bin/ffmpeg',
-            '~/.local/bin/ffmpeg',
-        ]
+        Args:
+            url: SoundCloud track URL
+            
+        Returns:
+            Tuple of (audio_bytes, metadata_dict)
+        """
+        metadata = {'success': False, 'error': None, 'info': {}}
         
-        for location in common_locations:
-            expanded_path = os.path.expanduser(location)
-            if os.path.exists(expanded_path) and os.access(expanded_path, os.X_OK):
-                return expanded_path
-        
-        return None
-    
-    def setup_ffmpeg(self):
-        """Setup ffmpeg for Linux systems - improved detection."""
-        print("🔧 Checking for ffmpeg installation...")
-        
-        # First try to find existing ffmpeg
-        self.ffmpeg_path = self.find_ffmpeg()
-        
-        if self.ffmpeg_path:
-            # Verify it actually works
-            if self.verify_ffmpeg(self.ffmpeg_path):
-                print(f"✓ Found working ffmpeg at: {self.ffmpeg_path}")
-                return True
-            else:
-                print(f"⚠ Found ffmpeg at {self.ffmpeg_path} but it doesn't work properly")
-                self.ffmpeg_path = None
-        
-        # If not found, try to install it
-        print("ffmpeg not found. Attempting to install...")
-        
-        if self.install_ffmpeg():
-            # Re-check after installation
-            self.ffmpeg_path = self.find_ffmpeg()
-            if self.ffmpeg_path and self.verify_ffmpeg(self.ffmpeg_path):
-                print(f"✓ Successfully installed ffmpeg at: {self.ffmpeg_path}")
-                return True
-        
-        print("⚠ Failed to install ffmpeg automatically.")
-        print("Please install it manually:")
-        print("  Ubuntu/Debian: sudo apt-get install ffmpeg")
-        print("  Fedora: sudo dnf install ffmpeg")
-        print("  Arch: sudo pacman -S ffmpeg")
-        return False
-    
-    def verify_ffmpeg(self, ffmpeg_path):
-        """Verify that ffmpeg actually works."""
-        try:
-            result = subprocess.run(
-                [ffmpeg_path, '-version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            return result.returncode == 0 and 'ffmpeg version' in result.stdout
-        except Exception as e:
-            print(f"Error verifying ffmpeg: {e}")
-            return False
-    
-    def install_ffmpeg(self):
-        """Try to install ffmpeg based on detected OS."""
-        try:
-            # Detect the Linux distribution
-            if os.path.exists('/etc/os-release'):
-                with open('/etc/os-release', 'r') as f:
-                    os_info = f.read().lower()
-                
-                if 'ubuntu' in os_info or 'debian' in os_info:
-                    print("Installing ffmpeg using apt...")
-                    subprocess.run(['sudo', 'apt-get', 'update'], check=False, capture_output=True)
-                    result = subprocess.run(['sudo', 'apt-get', 'install', '-y', 'ffmpeg'], 
-                                          capture_output=True, text=True)
-                    return result.returncode == 0
-                    
-                elif 'fedora' in os_info:
-                    print("Installing ffmpeg using dnf...")
-                    result = subprocess.run(['sudo', 'dnf', 'install', '-y', 'ffmpeg'], 
-                                          capture_output=True, text=True)
-                    return result.returncode == 0
-                    
-                elif 'arch' in os_info:
-                    print("Installing ffmpeg using pacman...")
-                    result = subprocess.run(['sudo', 'pacman', '-S', '--noconfirm', 'ffmpeg'], 
-                                          capture_output=True, text=True)
-                    return result.returncode == 0
-        except Exception as e:
-            print(f"Error during installation: {e}")
-        
-        return False
-    
-    def validate_url(self, url):
-        """Validate if the URL is a valid SoundCloud URL."""
-        pattern = r'^https?://(?:www\.)?soundcloud\.com/[\w-]+/[\w-]+'
-        return bool(re.match(pattern, url))
-    
-    def get_file_hash(self, url):
-        """Generate a unique hash for a URL."""
-        return hashlib.md5(url.encode()).hexdigest()
-    
-    def is_already_downloaded(self, url):
-        """Check if a URL has already been successfully downloaded."""
-        url_hash = self.get_file_hash(url)
-        
-        if url_hash in self.download_log:
-            file_path = self.download_log[url_hash].get('file_path')
-            if file_path and os.path.exists(file_path):
-                file_size = os.path.getsize(file_path)
-                if file_size > 1000000:  # > 1MB
-                    print(f"✓ Already downloaded: {os.path.basename(file_path)}")
-                    return True
-        
-        return False
-    
-    def sanitize_filename(self, filename):
-        """Sanitize filename to remove problematic characters."""
-        # Remove or replace problematic characters
-        filename = re.sub(r'[<>:"/\\|?*]', '', filename)
-        filename = re.sub(r'\s+', ' ', filename)  # Replace multiple spaces with single space
-        filename = filename.strip()
-        
-        # Ensure filename isn't too long (limit to 200 chars)
-        if len(filename) > 200:
-            name, ext = os.path.splitext(filename)
-            filename = name[:200-len(ext)] + ext
-        
-        return filename
-    
-    def download_audio(self, url, max_retries=3):
-        """Download audio from SoundCloud URL with proper ffmpeg configuration."""
-        if not self.validate_url(url):
-            print(f"✗ Invalid URL: {url}")
-            return None
-        
-        # Check if already downloaded
-        if self.is_already_downloaded(url):
-            return self.download_log[self.get_file_hash(url)]['file_path']
-        
-        print(f"⬇ Downloading: {url}")
-        
-        # Configure yt-dlp options with sanitized filename template
         ydl_opts = {
             'format': 'bestaudio/best',
-            'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
             'noplaylist': True,
             'quiet': True,
             'no_warnings': True,
-            'retries': 10,
-            'fragment_retries': 10,
-            'skip_unavailable_fragments': True,
-            'restrictfilenames': True,  # Use only ASCII characters in filenames
-            # Audio extraction settings
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'prefer_ffmpeg': True,  # Prefer ffmpeg over avconv
+            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
         }
         
-        # CRITICAL: Set ffmpeg location properly
         if self.ffmpeg_path:
-            # Get the directory containing ffmpeg
-            ffmpeg_dir = os.path.dirname(self.ffmpeg_path)
-            ydl_opts['ffmpeg_location'] = ffmpeg_dir
-            print(f"  Using ffmpeg from: {ffmpeg_dir}")
-        
-        # Try downloading with retries
-        for attempt in range(max_retries):
-            try:
+            ydl_opts['ffmpeg_location'] = self.ffmpeg_path
+
+        try:
+            # Extract metadata
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+                metadata['info'] = {
+                    'title': info.get('title', 'Unknown'),
+                    'duration': info.get('duration', 0),
+                    'uploader': info.get('uploader', 'Unknown'),
+                    'upload_date': info.get('upload_date', ''),
+                }
+            
+            # Download to temporary file
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                ydl_opts['outtmpl'] = tmp_file.name.replace('.mp3', '.%(ext)s')
+                
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    # Extract info first
-                    info = ydl.extract_info(url, download=False)
-                    
-                    # Generate expected filename
-                    filename = ydl.prepare_filename(info)
-                    base, _ = os.path.splitext(filename)
-                    mp3_file = f"{base}.mp3"
-                    
-                    # Ensure the mp3_file path is within our output directory
-                    mp3_file = os.path.join(self.output_dir, os.path.basename(mp3_file))
-                    
-                    # Check if file already exists
-                    if os.path.exists(mp3_file) and os.path.getsize(mp3_file) > 1000000:
-                        print(f"✓ File already exists: {os.path.basename(mp3_file)}")
-                        # Add to log
-                        self.download_log[self.get_file_hash(url)] = {
-                            'url': url,
-                            'file_path': mp3_file,
-                            'download_date': datetime.now().isoformat()
-                        }
-                        self.save_download_log()
-                        return mp3_file
-                    
-                    # Now download
                     ydl.download([url])
-                    
-                    # Find the actual downloaded file (yt-dlp might change the filename)
-                    downloaded_files = []
-                    for file in os.listdir(self.output_dir):
-                        if file.endswith('.mp3'):
-                            file_path = os.path.join(self.output_dir, file)
-                            if os.path.getmtime(file_path) > time.time() - 300:  # Modified in last 5 minutes
-                                downloaded_files.append(file_path)
-                    
-                    # Use the most recently modified file
-                    if downloaded_files:
-                        mp3_file = max(downloaded_files, key=os.path.getmtime)
-                    
-                    # Verify the download
-                    if os.path.exists(mp3_file) and os.path.getsize(mp3_file) > 0:
-                        print(f"✓ Successfully downloaded: {os.path.basename(mp3_file)}")
-                        print(f"  📁 Saved to: {mp3_file}")
-                        
-                        # Add to download log
-                        self.download_log[self.get_file_hash(url)] = {
-                            'url': url,
-                            'file_path': mp3_file,
-                            'download_date': datetime.now().isoformat()
-                        }
-                        self.save_download_log()
-                        
-                        return mp3_file
-                    else:
-                        raise Exception("Downloaded file is empty or missing")
-                        
-            except Exception as e:
-                error_msg = str(e)[:100]
-                print(f"  Attempt {attempt + 1}/{max_retries} failed: {error_msg}")
                 
-                # If ffmpeg issue, try to fix it
-                if 'ffmpeg' in error_msg.lower() and attempt == 0:
-                    print("  Attempting to fix ffmpeg configuration...")
-                    self.setup_ffmpeg()
+                processed_file = tmp_file.name.replace('.mp3', '.mp3')
                 
-                if attempt < max_retries - 1:
-                    time.sleep(5 * (attempt + 1))
-        
-        print(f"✗ Failed to download after {max_retries} attempts")
-        return None
-    
-    def download_date_range(self, profile_url, start_date, end_date):
+                if Path(processed_file).exists():
+                    with open(processed_file, 'rb') as f:
+                        audio_data = f.read()
+                    
+                    Path(processed_file).unlink()
+                    metadata['success'] = True
+                    return audio_data, metadata
+                    
+        except Exception as e:
+            metadata['error'] = str(e)
+            return None, metadata
+            
+        return None, metadata
+
+    def _transcribe_audio_data(self, audio_data: bytes, metadata: Dict) -> Tuple[Optional[str], Dict]:
         """
-        Download tracks from a SoundCloud profile within a date range.
+        Transcribe audio from memory.
         
         Args:
-            profile_url: SoundCloud profile URL
-            start_date: Start date (datetime object or string 'YYYY-MM-DD')
-            end_date: End date (datetime object or string 'YYYY-MM-DD')
-        
+            audio_data: Raw audio bytes
+            metadata: Metadata dictionary to update
+            
         Returns:
-            Tuple of (successful_downloads, failed_urls)
+            Tuple of (transcript_text, updated_metadata)
         """
-        # Parse dates if strings
-        if isinstance(start_date, str):
-            start_date = datetime.strptime(start_date, '%Y-%m-%d')
-        if isinstance(end_date, str):
-            end_date = datetime.strptime(end_date, '%Y-%m-%d')
+        start_time = time.time()
         
-        print(f"\n📅 Searching for tracks from {start_date.date()} to {end_date.date()}")
-        print(f"📁 Output directory: {self.output_dir}\n")
-        
-        # Generate URLs for date range
-        urls = self.generate_urls_for_range(profile_url, start_date, end_date)
-        
-        if not urls:
-            print("No URLs found for the specified date range")
-            return [], []
-        
-        print(f"Found {len(urls)} potential tracks to download\n")
-        
-        successful = []
-        failed = []
-        
-        for i, (date, url) in enumerate(urls, 1):
-            print(f"[{i}/{len(urls)}] Processing {date.date()}")
+        if not audio_data:
+            metadata['transcription_error'] = "Empty audio data"
+            return None, metadata
             
-            # Check if URL exists (optional - can be skipped for faster processing)
-            try:
-                response = requests.head(url, timeout=5, allow_redirects=True)
-                if response.status_code == 404:
-                    print(f"  ✗ URL not found (404)")
-                    failed.append(url)
-                    continue
-            except:
-                pass  # Try downloading anyway
+        try:
+            metadata['audio_size_mb'] = len(audio_data) / (1024 * 1024)
             
-            result = self.download_audio(url)
+            if PYDUB_AVAILABLE:
+                audio_segment = AudioSegment.from_file(io.BytesIO(audio_data))
+                metadata['audio_duration_seconds'] = len(audio_segment) / 1000.0
+
+            transcript = self.transcription_engine.transcribe_from_memory(audio_data)
             
-            if result:
-                successful.append(result)
-            else:
-                failed.append(url)
+            metadata.update({
+                'processing_duration_seconds': time.time() - start_time,
+                'transcript_length_chars': len(transcript),
+                'transcript_length_words': len(transcript.split()),
+                'transcription_success': True,
+            })
             
-            # Small delay between downloads
-            if i < len(urls):
-                time.sleep(2)
+            return transcript, metadata
+            
+        except Exception as e:
+            metadata.update({
+                'transcription_error': str(e),
+                'transcription_success': False,
+                'processing_duration_seconds': time.time() - start_time,
+            })
+            return None, metadata
+
+    def _save_structured_data(self, record: Dict) -> None:
+        """Append record to CSV database."""
+        try:
+            new_row = pd.DataFrame([record])
+            new_row.to_csv(self.structured_data_file, mode='a', header=False, index=False)
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Could not save to database: {e}")
+
+    def _save_transcript_file(self, transcript: str, metadata: Dict, base_filename: str) -> str:
+        """Save transcript as text file with metadata header."""
+        transcript_file = self.output_dir / f"{base_filename}.txt"
         
-        # Print summary
-        print(f"\n{'='*50}")
-        print(f"Download Summary:")
-        print(f"  ✓ Successful: {len(successful)}")
-        print(f"  ✗ Failed: {len(failed)}")
-        print(f"  📁 Files saved to: {self.output_dir}")
+        with open(transcript_file, 'w', encoding='utf-8') as f:
+            f.write(f"# Transcription Report\n{'='*50}\n")
+            f.write(f"Source URL: {metadata.get('url', 'Unknown')}\n")
+            f.write(f"Title: {metadata.get('info', {}).get('title', 'Unknown')}\n")
+            f.write(f"Date Processed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Model: Mustafaa4a/ASR-Somali\n")
+            f.write(f"Audio Duration: {metadata.get('audio_duration_seconds', 0):.1f}s\n")
+            f.write(f"Processing Time: {metadata.get('processing_duration_seconds', 0):.1f}s\n")
+            f.write(f"Word Count: {metadata.get('transcript_length_words', 0)}\n")
+            f.write(f"{'='*50}\n\n## Transcript\n\n{transcript}")
+            
+        return str(transcript_file)
+
+    def _process_url(self, url: str) -> Tuple[bool, Optional[str], Dict]:
+        """
+        Process single URL: download, transcribe, save.
         
-        # List downloaded files
-        if successful:
-            print(f"\nDownloaded files:")
-            for file_path in successful:
-                print(f"  • {os.path.basename(file_path)}")
+        Args:
+            url: SoundCloud track URL
+            
+        Returns:
+            Tuple of (success, file_path, metadata)
+        """
+        url_hash = hashlib.md5(url.encode()).hexdigest()
         
-        print(f"{'='*50}\n")
+        # Skip if already processed (CRITICAL for resumption)
+        if url_hash in self.transcription_log:
+            return True, self.transcription_log[url_hash].get('file_path'), self.transcription_log[url_hash]
         
-        return successful, failed
-    
-    def generate_urls_for_range(self, profile_url, start_date, end_date):
-        """Generate potential URLs for a date range."""
+        # Download
+        audio_data, metadata = self._download_to_memory(url)
+        if not audio_data:
+            return False, None, metadata
+            
+        metadata['url'] = url
+        metadata['id'] = url_hash
+        
+        # Transcribe
+        transcript, metadata = self._transcribe_audio_data(audio_data, metadata)
+        if not transcript:
+            return False, None, metadata
+        
+        # Generate safe filename
+        safe_title = re.sub(r'[^\w\s-]', '', metadata.get('info', {}).get('title', ''))
+        base_filename = re.sub(r'[-\s]+', '-', safe_title).strip('-') or f"soundcloud_{url_hash[:8]}"
+
+        file_path = None
+        
+        # Save to database
+        if self.output_format in ['structured', 'both']:
+            record = {
+                'id': url_hash,
+                'url': url,
+                'title': metadata.get('info', {}).get('title', 'Unknown'),
+                'date_recorded': metadata.get('info', {}).get('upload_date', ''),
+                'date_processed': datetime.now().isoformat(),
+                'processing_duration_seconds': metadata.get('processing_duration_seconds', 0),
+                'audio_size_mb': metadata.get('audio_size_mb', 0),
+                'audio_duration_seconds': metadata.get('audio_duration_seconds', 0),
+                'transcript_length_chars': metadata.get('transcript_length_chars', 0),
+                'transcript_length_words': metadata.get('transcript_length_words', 0),
+                'transcript_text': transcript
+            }
+            self._save_structured_data(record)
+            file_path = str(self.structured_data_file)
+        
+        # Save text file
+        if self.output_format in ['txt', 'both']:
+            txt_file = self._save_transcript_file(transcript, metadata, base_filename)
+            file_path = txt_file
+        
+        # Update log (enables resumption)
+        self.transcription_log[url_hash] = {
+            'url': url,
+            'title': metadata.get('info', {}).get('title', 'Unknown'),
+            'file_path': file_path,
+            'success': True
+        }
+        self._save_transcription_log()
+        
+        return True, file_path, metadata
+
+    def _generate_urls_for_range(self, profile_url: str, start_date: datetime, end_date: datetime) -> List[Tuple[datetime, str]]:
+        """
+        Generate SoundCloud URLs for date range.
+        
+        Args:
+            profile_url: Base SoundCloud profile URL
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+            
+        Returns:
+            List of (date, url) tuples
+        """
         urls = []
-        
-        # Clean profile URL
         profile_url = profile_url.rstrip('/')
-        
         current_date = start_date
+        
         while current_date <= end_date:
             day = current_date.day
             month = current_date.strftime('%b').lower()
             year = current_date.year
             
-            # Generate potential URL formats (most common first)
-            potential_urls = [
-                f"{profile_url}/idaacadda-{day:02d}-{month}-{year}",
-                f"{profile_url}/idaacadda-{day}-{month}-{year}",
-            ]
-            
-            # Add the first URL for this date
-            urls.append((current_date, potential_urls[0]))
-            
+            url = f"{profile_url}/idaacadda-{day:02d}-{month}-{year}"
+            urls.append((current_date, url))
             current_date += timedelta(days=1)
-        
+            
         return urls
 
+    def process_date_range(self, profile_url: str, start_date_str: str, end_date_str: str) -> Dict:
+        """
+        Process all tracks for a date range with progress tracking.
+        
+        Args:
+            profile_url: SoundCloud profile URL
+            start_date_str: Start date in 'YYYY-MM-DD' format
+            end_date_str: End date in 'YYYY-MM-DD' format
+            
+        Returns:
+            Dictionary with 'successful', 'failed', 'skipped' URL lists
+            
+        Raises:
+            ValueError: If date format is invalid
+        """
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+        except ValueError:
+            raise ValueError("Invalid date format. Use 'YYYY-MM-DD'")
 
-# Usage example with explicit path handling
-def main():
-    """Main function for command-line usage."""
-    # Get the current working directory
-    current_dir = os.getcwd()
-    print(f"🏠 Current directory: {current_dir}")
+        print(f"\n{'='*70}")
+        print(f"SoundCloud ASR Transcription Pipeline")
+        print(f"{'='*70}")
+        print(f"Profile: {profile_url}")
+        print(f"Date Range: {start_date.date()} to {end_date.date()}")
+        print(f"Output: {self.structured_data_file}")
+        print(f"{'='*70}\n")
+        
+        urls = self._generate_urls_for_range(profile_url, start_date, end_date)
+        
+        if not urls:
+            print("No URLs generated for date range")
+            return {'successful': [], 'failed': [], 'skipped': []}
+        
+        results = {'successful': [], 'failed': [], 'skipped': []}
+        
+        # Process with progress bar
+        with tqdm(urls, desc="Processing tracks", unit="track") as pbar:
+            for date, url in pbar:
+                pbar.set_postfix_str(f"{date.date()}")
+                
+                try:
+                    success, _, _ = self._process_url(url)
+                    if success:
+                        results['successful'].append(url)
+                    else:
+                        results['failed'].append(url)
+                except Exception as e:
+                    if self.verbose:
+                        tqdm.write(f"✗ Error on {date.date()}: {e}")
+                    results['failed'].append(url)
+                
+                time.sleep(0.5)  # Rate limiting
+
+        # Summary
+        print(f"\n{'='*70}")
+        print("Processing Complete")
+        print(f"{'='*70}")
+        print(f"✓ Successful: {len(results['successful'])}")
+        print(f"✗ Failed: {len(results['failed'])}")
+        print(f"Database: {self.structured_data_file}")
+        
+        if results['failed'] and self.verbose:
+            print("\nFailed URLs:")
+            for url in results['failed']:
+                print(f"  - {url}")
+        
+        print(f"{'='*70}\n")
+        
+        return results
+
+
+# ============================================================================
+# BATCH PROCESSING WITH RESUMPTION
+# ============================================================================
+
+def run_batch_collection(
+    profile_url: str,
+    start_date: str,
+    end_date: str,
+    output_dir: str,
+    batch_size_days: int = 30,
+    verbose: bool = False
+) -> None:
+    """
+    Process large date ranges in resumable batches with crash recovery.
     
-    # Set the output directory relative to current location
-    output_dir = "data/01_raw"
+    Args:
+        profile_url: SoundCloud profile URL
+        start_date: Start date 'YYYY-MM-DD'
+        end_date: End date 'YYYY-MM-DD'
+        output_dir: Output directory path
+        batch_size_days: Process in chunks of N days (default: 30)
+        verbose: Enable detailed logging
+        
+    Example:
+        run_batch_collection(
+            profile_url="https://soundcloud.com/radio-ergo",
+            start_date="2020-01-01",
+            end_date="2025-09-30",
+            output_dir="./data/02_intermediate/transcripts/mustafaa4a_ASR-Somali",
+            batch_size_days=30
+        )
+    """
+    print(f"\n{'='*80}")
+    print("PRODUCTION DATA COLLECTION - BATCH PROCESSOR")
+    print(f"{'='*80}")
+    print(f"Date Range: {start_date} to {end_date}")
+    print(f"Batch Size: {batch_size_days} days")
+    print(f"Output: {output_dir}")
+    print(f"{'='*80}\n")
     
-    # If running from project root, this should work
-    # If running from elsewhere, construct the full path
-    if os.path.basename(current_dir) == "somali-radios-with-ai-for-food-security":
-        full_output_path = os.path.join(current_dir, output_dir)
+    start = datetime.strptime(start_date, '%Y-%m-%d')
+    end = datetime.strptime(end_date, '%Y-%m-%d')
+    total_days = (end - start).days + 1
+    
+    print(f"📊 Total Scope: {total_days} days")
+    print(f"📦 Estimated Batches: {(total_days + batch_size_days - 1) // batch_size_days}")
+    print(f"⏱️  Estimated Time: ~{total_days * 3 / 60:.1f} hours (at 3 min/track)\n")
+    
+    current_start = start
+    batch_num = 1
+    total_successful = 0
+    total_failed = 0
+    
+    # Process in batches
+    while current_start <= end:
+        # Calculate batch end (don't exceed final end date)
+        batch_end = min(
+            current_start + timedelta(days=batch_size_days - 1),
+            end
+        )
+        
+        print(f"\n{'─'*80}")
+        print(f"🔄 BATCH {batch_num}: {current_start.date()} → {batch_end.date()}")
+        print(f"{'─'*80}")
+        
+        try:
+            # Process batch (auto-skips already processed URLs via log)
+            downloader = StreamingSoundCloudDownloader(
+                output_dir=output_dir,
+                output_format="structured",
+                verbose=verbose
+            )
+            
+            results = downloader.process_date_range(
+                profile_url=profile_url,
+                start_date_str=current_start.strftime('%Y-%m-%d'),
+                end_date_str=batch_end.strftime('%Y-%m-%d')
+            )
+            
+            total_successful += len(results['successful'])
+            total_failed += len(results['failed'])
+            
+            print(f"✓ Batch {batch_num} complete: {len(results['successful'])} successful, {len(results['failed'])} failed")
+            
+        except KeyboardInterrupt:
+            print(f"\n\n⚠️  INTERRUPTED by user")
+            print(f"📍 Progress saved up to: {current_start.date()}")
+            print(f"💡 Resume by re-running with same parameters")
+            print(f"   Already processed URLs will be automatically skipped")
+            break
+            
+        except Exception as e:
+            print(f"\n❌ ERROR in batch {batch_num}: {e}")
+            print(f"📍 Progress saved. Continuing to next batch...")
+            # Continue to next batch rather than failing entire run
+        
+        # Move to next batch
+        current_start = batch_end + timedelta(days=1)
+        batch_num += 1
+    
+    # Final summary
+    print(f"\n\n{'='*80}")
+    print("📊 COLLECTION SUMMARY")
+    print(f"{'='*80}")
+    print(f"Total Successful: {total_successful}")
+    print(f"Total Failed: {total_failed}")
+    print(f"Database: {Path(output_dir) / 'transcriptions_database.csv'}")
+    print(f"Log: {Path(output_dir) / '.transcription_log.json'}")
+    print(f"{'='*80}\n")
+
+
+def check_progress(output_dir: str) -> None:
+    """
+    Display current collection progress from existing logs.
+    
+    Args:
+        output_dir: Output directory containing logs
+    """
+    output_path = Path(output_dir)
+    log_file = output_path / ".transcription_log.json"
+    csv_file = output_path / "transcriptions_database.csv"
+    
+    print(f"\n{'='*80}")
+    print("COLLECTION PROGRESS REPORT")
+    print(f"{'='*80}\n")
+    
+    # Check log
+    if log_file.exists():
+        with open(log_file, 'r') as f:
+            log_data = json.load(f)
+        
+        print(f"📝 Transcription Log:")
+        print(f"   Total URLs Processed: {len(log_data)}")
+        
+        successful = sum(1 for v in log_data.values() if v.get('success', False))
+        print(f"   Successful: {successful}")
+        print(f"   Failed: {len(log_data) - successful}")
     else:
-        # Try to find the project directory
-        project_name = "somali-radios-with-ai-for-food-security"
-        if project_name in current_dir:
-            # We're inside the project somewhere
-            project_root = current_dir.split(project_name)[0] + project_name
-            full_output_path = os.path.join(project_root, output_dir)
-        else:
-            # Default to creating the structure in current directory
-            full_output_path = os.path.join(current_dir, project_name, output_dir)
+        print("⚠️  No transcription log found")
     
-    print(f"🎯 Target output directory: {full_output_path}")
+    # Check CSV database
+    if csv_file.exists():
+        df = pd.read_csv(csv_file)
+        print(f"\n📊 Database Statistics:")
+        print(f"   Total Records: {len(df)}")
+        
+        if not df.empty and 'date_recorded' in df.columns:
+            df['date_recorded'] = pd.to_datetime(df['date_recorded'], format='%Y%m%d', errors='coerce')
+            date_range = df['date_recorded'].agg(['min', 'max'])
+            print(f"   Date Range: {date_range['min'].date()} to {date_range['max'].date()}")
+        
+        if 'audio_duration_seconds' in df.columns:
+            total_audio = df['audio_duration_seconds'].sum()
+            print(f"   Total Audio Duration: {total_audio / 3600:.1f} hours")
+        
+        if 'transcript_length_words' in df.columns:
+            total_words = df['transcript_length_words'].sum()
+            print(f"   Total Words Transcribed: {total_words:,}")
+    else:
+        print("\n⚠️  No database file found")
     
-    downloader = SoundCloudDownloader(output_dir=full_output_path)
-    
-    # Download a specific date range
-    profile_url = "https://soundcloud.com/radio-ergo"
-    start_date = "2024-07-01"
-    end_date = "2024-07-01"
-    
-    successful, failed = downloader.download_date_range(
-        profile_url,
-        start_date,
-        end_date
+    print(f"\n{'='*80}\n")
+
+
+# ============================================================================
+# CLI INTERFACE
+# ============================================================================
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Production SoundCloud ASR batch processor with crash recovery",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Process full 2 days for test purposes 
+    python data_collection.py process --start 2020-01-01 --end 2020-01-31 \
+    --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+
+  # Process full 5.5 year range in monthly batches
+  python data_collection.py process --start 2020-01-01 --end 2025-09-30 \\
+      --output ./data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+
+  # Check current progress
+  python data_collection.py progress \\
+      --output ./data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+  
+  # Resume interrupted collection (same command, auto-skips processed URLs)
+  python data_collection.py process --start 2020-01-01 --end 2025-09-30 \\
+      --output ./data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+        """
     )
     
-    # Retry failed downloads if any
-    if failed:
-        print("\n🔄 Retrying failed downloads...")
-        retry_successful = []
-        still_failed = []
+    subparsers = parser.add_subparsers(dest='command', help='Commands')
+    
+    # Process command
+    process_parser = subparsers.add_parser('process', help='Process date range with batching')
+    process_parser.add_argument('--start', required=True, help='Start date YYYY-MM-DD')
+    process_parser.add_argument('--end', required=True, help='End date YYYY-MM-DD')
+    process_parser.add_argument('--profile', default='https://soundcloud.com/radio-ergo', 
+                               help='SoundCloud profile URL (default: radio-ergo)')
+    process_parser.add_argument('--output', required=True, help='Output directory')
+    process_parser.add_argument('--batch-days', type=int, default=30, 
+                               help='Batch size in days (default: 30)')
+    process_parser.add_argument('--verbose', action='store_true', help='Verbose output')
+    
+    # Progress command
+    progress_parser = subparsers.add_parser('progress', help='Check collection progress')
+    progress_parser.add_argument('--output', required=True, help='Output directory')
+    
+    args = parser.parse_args()
+    
+    if args.command == 'process':
+        run_batch_collection(
+            profile_url=args.profile,
+            start_date=args.start,
+            end_date=args.end,
+            output_dir=args.output,
+            batch_size_days=args.batch_days,
+            verbose=args.verbose
+        )
+    elif args.command == 'progress':
+        check_progress(args.output)
+    else:
+        # Default behavior: run with hardcoded paths
+        OUTPUT_DIR = "/teamspace/studios/this_studio/somali-radios-with-ai-for-food-security/data/02_intermediate/transcripts/mustafaa4a_ASR-Somali"
         
-        for url in failed:
-            result = downloader.download_audio(url, max_retries=2)
-            if result:
-                retry_successful.append(result)
-            else:
-                still_failed.append(url)
+        print("💡 Running in default mode. For better control, use:")
+        print("   python data_collection.py process --start 2020-01-01 --end 2025-09-30 --output <path>")
+        print("   python data_collection.py progress --output <path>\n")
         
-        if retry_successful:
-            print(f"✓ Successfully downloaded {len(retry_successful)} on retry")
-        if still_failed:
-            print(f"✗ Still failed: {len(still_failed)} URLs")
-            for url in still_failed:
-                print(f"  - {url}")
-
-
-# Alternative function for direct usage when you know your exact path
-def download_to_specific_path():
-    """Function to download directly to your project's data directory."""
-    # Hardcoded path to your project structure
-    project_root = "somali-radios-with-ai-for-food-security"
-    output_path = os.path.join(project_root, "data", "01_raw")
-    
-    # Create the full path if it doesn't exist
-    os.makedirs(output_path, exist_ok=True)
-    
-    print(f"📁 Downloading to: {os.path.abspath(output_path)}")
-    
-    downloader = SoundCloudDownloader(output_dir=output_path)
-    
-    # Your download parameters
-    profile_url = "https://soundcloud.com/radio-ergo"
-    start_date = "2024-07-01"
-    end_date = "2024-07-01"
-    
-    return downloader.download_date_range(profile_url, start_date, end_date)
+        run_batch_collection(
+            profile_url="https://soundcloud.com/radio-ergo",
+            start_date="2020-01-01",
+            end_date="2025-09-30",
+            output_dir=OUTPUT_DIR,
+            batch_size_days=30,
+            verbose=False
+        )
