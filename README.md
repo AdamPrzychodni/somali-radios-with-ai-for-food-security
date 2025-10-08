@@ -31,9 +31,6 @@ venv\Scripts\activate     # On Windows
 ### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
-
-# Additional packages for enhanced transcription
-pip install google-generativeai yt-dlp pydub
 ```
 
 ### 4. Setup Gemini API Key 🔑
@@ -284,3 +281,31 @@ This project is for academic research purposes. Please respect copyright of orig
 ---
 
 **🎯 Next Steps**: Run the setup verification, configure your API key, and start exploring the enhanced transcription capabilities!
+
+
+Docker 
+
+docker build -t somali-radios-ai .
+
+docker run -p 8888:8888 -v $(pwd):/app somali-radios-ai
+
+1. Open a new terminal.
+
+2. Find your container ID:
+Run docker ps to see your active containers. You'll see something like this:
+
+Bash
+
+CONTAINER ID   IMAGE               COMMAND                  CREATED          STATUS          PORTS                    NAMES
+8e0a36304286   somali-radios-ai    "jupyter notebook --…"   About a minute   Up About a min  0.0.0.0:8888->8888/tcp   vigilant_goldberg
+Your container ID is the value in the first column (e.g., 8e0a36304286).
+
+3. Execute the command:
+Use the docker exec command, replacing <container_id> with your actual ID. This command tells Docker to run your script from within the /app/src directory inside the container.
+
+Bash
+
+docker exec <container_id> python src/data_collection.py process \
+--start 2020-01-01 \
+--end 2020-01-31 \
+--output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali

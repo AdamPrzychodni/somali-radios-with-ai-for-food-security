@@ -19,5 +19,6 @@ requests
 tqdm
 python-dotenv
 yt-dlp
-google-cloud-storage 
-google-auth
+google-generativeai 
+pydub
+librosa
