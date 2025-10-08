@@ -18,6 +18,7 @@ from typing import Optional, Dict, Tuple, List
 import io
 
 import yt_dlp
+from yt_dlp.utils import DownloadError 
 import pandas as pd
 import torch
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
@@ -46,9 +47,10 @@ class SomaliASREngine:
             model_name: HuggingFace model identifier
             verbose: If True, print detailed loading information
         """
-        self.processor = None
-        self.model = None
-        self.device = "cpu"
+        # MODIFIED: Added specific type hints for clarity and static analysis
+        self.processor: Optional[Wav2Vec2Processor] = None
+        self.model: Optional[Wav2Vec2ForCTC] = None
+        self.device: str = "cpu"
         self.verbose = verbose
         self._setup_model(model_name)
 
@@ -67,7 +69,7 @@ class SomaliASREngine:
             self.model = Wav2Vec2ForCTC.from_pretrained(model_name)
             
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model.to(self.device)
+            self.model.to(self.device)  # type: ignore
             
             if self.verbose:
                 print(f"✓ Model loaded on {self.device.upper()}")
@@ -86,7 +88,12 @@ class SomaliASREngine:
             
         Raises:
             ValueError: If transcription fails
+            RuntimeError: If the model is not initialized
         """
+        # MODIFIED: Added check to ensure model/processor are loaded
+        if self.model is None or self.processor is None:
+            raise RuntimeError("ASR model is not initialized.")
+            
         target_sr = 16000
         
         try:
@@ -126,6 +133,15 @@ class SomaliASREngine:
 # ============================================================================
 # DOWNLOADER & PROCESSOR
 # ============================================================================
+
+class SilentLogger:
+    """A silent logger for yt-dlp to prevent it from printing errors."""
+    def debug(self, msg: str) -> None:
+        pass
+    def warning(self, msg: str) -> None:
+        pass
+    def error(self, msg: str) -> None:
+        pass
 
 class StreamingSoundCloudDownloader:
     """
@@ -195,7 +211,9 @@ class StreamingSoundCloudDownloader:
                 'transcript_length_words',
                 'transcript_text'
             ]
-            pd.DataFrame(columns=columns).to_csv(self.structured_data_file, index=False)
+
+            pd.DataFrame(columns=columns).to_csv(self.structured_data_file, index=False)  # type: ignore
+
 
     def _load_transcription_log(self) -> Dict:
         """Load processing log to skip already-processed URLs."""
@@ -213,61 +231,70 @@ class StreamingSoundCloudDownloader:
             json.dump(self.transcription_log, f, indent=2)
 
     def _download_to_memory(self, url: str) -> Tuple[Optional[bytes], Dict]:
-        """
-        Download audio to memory buffer.
-        
-        Args:
-            url: SoundCloud track URL
+            """
+            Download audio to memory buffer.
             
-        Returns:
-            Tuple of (audio_bytes, metadata_dict)
-        """
-        metadata = {'success': False, 'error': None, 'info': {}}
-        
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'noplaylist': True,
-            'quiet': True,
-            'no_warnings': True,
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
-        }
-        
-        if self.ffmpeg_path:
-            ydl_opts['ffmpeg_location'] = self.ffmpeg_path
+            Args:
+                url: SoundCloud track URL
+                
+            Returns:
+                Tuple of (audio_bytes, metadata_dict)
+            """
+            metadata: Dict = {'success': False, 'error': None, 'info': {}}
+            
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'noplaylist': True,
+                'quiet': True,
+                'no_warnings': True,
+                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
+                'logger': SilentLogger(),  # Use our silent logger
+            }
+            
+            if self.ffmpeg_path:
+                ydl_opts['ffmpeg_location'] = self.ffmpeg_path
 
-        try:
-            # Extract metadata
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-                info = ydl.extract_info(url, download=False)
-                metadata['info'] = {
-                    'title': info.get('title', 'Unknown'),
-                    'duration': info.get('duration', 0),
-                    'uploader': info.get('uploader', 'Unknown'),
-                    'upload_date': info.get('upload_date', ''),
-                }
-            
-            # Download to temporary file
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
-                ydl_opts['outtmpl'] = tmp_file.name.replace('.mp3', '.%(ext)s')
-                
+            try:
+                # Extract metadata
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
+                    info = ydl.extract_info(url, download=False)
+                    info = info or {}
+                    metadata['info'] = {
+                        'title': info.get('title', 'Unknown'),
+                        'duration': info.get('duration', 0),
+                        'uploader': info.get('uploader', 'Unknown'),
+                        'upload_date': info.get('upload_date', ''),
+                    }
                 
-                processed_file = tmp_file.name.replace('.mp3', '.mp3')
+                # Download to temporary file
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
+                    ydl_opts['outtmpl'] = tmp_file.name.replace('.mp3', '.%(ext)s')
+                    
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([url])
+                    
+                    processed_file = tmp_file.name.replace('.mp3', '.mp3')
+                    
+                    if Path(processed_file).exists():
+                        with open(processed_file, 'rb') as f:
+                            audio_data = f.read()
+                        
+                        Path(processed_file).unlink()
+                        metadata['success'] = True
+                        return audio_data, metadata
+                        
+            except DownloadError as e:
+                # Specifically check for 404 errors and create a clean message
+                if 'HTTP Error 404' in str(e):
+                    metadata['error'] = 'Broadcast not found (404 Error).'
+                else:
+                    metadata['error'] = f'Download failed: {str(e)}'
+                return None, metadata
+            except Exception as e:
+                metadata['error'] = str(e)
+                return None, metadata
                 
-                if Path(processed_file).exists():
-                    with open(processed_file, 'rb') as f:
-                        audio_data = f.read()
-                    
-                    Path(processed_file).unlink()
-                    metadata['success'] = True
-                    return audio_data, metadata
-                    
-        except Exception as e:
-            metadata['error'] = str(e)
             return None, metadata
-            
-        return None, metadata
 
     def _transcribe_audio_data(self, audio_data: bytes, metadata: Dict) -> Tuple[Optional[str], Dict]:
         """
@@ -371,7 +398,7 @@ class StreamingSoundCloudDownloader:
         safe_title = re.sub(r'[^\w\s-]', '', metadata.get('info', {}).get('title', ''))
         base_filename = re.sub(r'[-\s]+', '-', safe_title).strip('-') or f"soundcloud_{url_hash[:8]}"
 
-        file_path = None
+        file_path: Optional[str] = None
         
         # Save to database
         if self.output_format in ['structured', 'both']:
@@ -435,76 +462,84 @@ class StreamingSoundCloudDownloader:
         return urls
 
     def process_date_range(self, profile_url: str, start_date_str: str, end_date_str: str) -> Dict:
-        """
-        Process all tracks for a date range with progress tracking.
-        
-        Args:
-            profile_url: SoundCloud profile URL
-            start_date_str: Start date in 'YYYY-MM-DD' format
-            end_date_str: End date in 'YYYY-MM-DD' format
+            """
+            Process all tracks for a date range with progress tracking.
             
-        Returns:
-            Dictionary with 'successful', 'failed', 'skipped' URL lists
-            
-        Raises:
-            ValueError: If date format is invalid
-        """
-        try:
-            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
-            end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
-        except ValueError:
-            raise ValueError("Invalid date format. Use 'YYYY-MM-DD'")
-
-        print(f"\n{'='*70}")
-        print(f"SoundCloud ASR Transcription Pipeline")
-        print(f"{'='*70}")
-        print(f"Profile: {profile_url}")
-        print(f"Date Range: {start_date.date()} to {end_date.date()}")
-        print(f"Output: {self.structured_data_file}")
-        print(f"{'='*70}\n")
-        
-        urls = self._generate_urls_for_range(profile_url, start_date, end_date)
-        
-        if not urls:
-            print("No URLs generated for date range")
-            return {'successful': [], 'failed': [], 'skipped': []}
-        
-        results = {'successful': [], 'failed': [], 'skipped': []}
-        
-        # Process with progress bar
-        with tqdm(urls, desc="Processing tracks", unit="track") as pbar:
-            for date, url in pbar:
-                pbar.set_postfix_str(f"{date.date()}")
+            Args:
+                profile_url: SoundCloud profile URL
+                start_date_str: Start date in 'YYYY-MM-DD' format
+                end_date_str: End date in 'YYYY-MM-DD' format
                 
-                try:
-                    success, _, _ = self._process_url(url)
-                    if success:
-                        results['successful'].append(url)
-                    else:
+            Returns:
+                Dictionary with 'successful', 'failed', 'skipped' URL lists
+                
+            Raises:
+                ValueError: If date format is invalid
+            """
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+            except ValueError:
+                raise ValueError("Invalid date format. Use 'YYYY-MM-DD'")
+
+            print(f"\n{'='*70}")
+            print(f"SoundCloud ASR Transcription Pipeline")
+            print(f"{'='*70}")
+            print(f"Profile: {profile_url}")
+            print(f"Date Range: {start_date.date()} to {end_date.date()}")
+            print(f"Output: {self.structured_data_file}")
+            print(f"{'='*70}\n")
+            
+            urls = self._generate_urls_for_range(profile_url, start_date, end_date)
+            
+            if not urls:
+                print("No URLs generated for date range")
+                return {'successful': [], 'failed': [], 'skipped': []}
+            
+            results: Dict[str, List] = {'successful': [], 'failed': [], 'skipped': []}
+            
+            # Process with progress bar
+            with tqdm(urls, desc="Processing tracks", unit="track") as pbar:
+                for date, url in pbar:
+                    pbar.set_postfix_str(f"{date.date()}")
+                    
+                    try:
+                        # Capture the metadata dictionary on success or failure
+                        success, _, metadata = self._process_url(url)
+                        if success:
+                            results['successful'].append(url)
+                        else:
+                            results['failed'].append(url)
+                            # Check for our clean error message and print it
+                            error_msg = metadata.get('error')
+                            if error_msg and 'Broadcast not found' in error_msg:
+                                tqdm.write(f"↪️  Skipping {date.date()}: Broadcast not found.")
+                            elif self.verbose and error_msg:
+                                tqdm.write(f"✗ Error on {date.date()}: {error_msg}")
+
+                    except Exception as e:
+                        if self.verbose:
+                            tqdm.write(f"✗ Error on {date.date()}: {e}")
                         results['failed'].append(url)
-                except Exception as e:
-                    if self.verbose:
-                        tqdm.write(f"✗ Error on {date.date()}: {e}")
-                    results['failed'].append(url)
-                
-                time.sleep(0.5)  # Rate limiting
+                    
+                    time.sleep(0.5)  # Rate limiting
 
-        # Summary
-        print(f"\n{'='*70}")
-        print("Processing Complete")
-        print(f"{'='*70}")
-        print(f"✓ Successful: {len(results['successful'])}")
-        print(f"✗ Failed: {len(results['failed'])}")
-        print(f"Database: {self.structured_data_file}")
-        
-        if results['failed'] and self.verbose:
-            print("\nFailed URLs:")
-            for url in results['failed']:
-                print(f"  - {url}")
-        
-        print(f"{'='*70}\n")
-        
-        return results
+            # Summary
+            print(f"\n{'='*70}")
+            print("Processing Complete")
+            print(f"{'='*70}")
+            print(f"✓ Successful: {len(results['successful'])}")
+            print(f"✗ Failed: {len(results['failed'])}")
+            print(f"Database: {self.structured_data_file}")
+            
+            if results['failed'] and self.verbose:
+                print("\nFailed URLs:")
+                for url in results['failed']:
+                    print(f"  - {url}")
+            
+            print(f"{'='*70}\n")
+            
+            return results
 
 
 # ============================================================================
@@ -649,20 +684,32 @@ def check_progress(output_dir: str) -> None:
     
     # Check CSV database
     if csv_file.exists():
-        df = pd.read_csv(csv_file)
+        try:
+            df = pd.read_csv(csv_file)
+        except pd.errors.EmptyDataError:
+            print("\n⚠️  Database file is empty.")
+            df = pd.DataFrame()
+
         print(f"\n📊 Database Statistics:")
         print(f"   Total Records: {len(df)}")
         
         if not df.empty and 'date_recorded' in df.columns:
+            # MODIFIED: More robust date parsing and range calculation
             df['date_recorded'] = pd.to_datetime(df['date_recorded'], format='%Y%m%d', errors='coerce')
-            date_range = df['date_recorded'].agg(['min', 'max'])
-            print(f"   Date Range: {date_range['min'].date()} to {date_range['max'].date()}")
-        
-        if 'audio_duration_seconds' in df.columns:
+            valid_dates = df['date_recorded'].dropna()
+            
+            if not valid_dates.empty:
+                min_date = valid_dates.min()
+                max_date = valid_dates.max()
+                print(f"   Date Range: {min_date.date()} to {max_date.date()}")
+            else:
+                print("   Date Range: No valid dates found.")
+
+        if not df.empty and 'audio_duration_seconds' in df.columns:
             total_audio = df['audio_duration_seconds'].sum()
             print(f"   Total Audio Duration: {total_audio / 3600:.1f} hours")
         
-        if 'transcript_length_words' in df.columns:
+        if not df.empty and 'transcript_length_words' in df.columns:
             total_words = df['transcript_length_words'].sum()
             print(f"   Total Words Transcribed: {total_words:,}")
     else:
@@ -681,21 +728,29 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Process full 2 days for test purposes 
-    python data_collection.py process --start 2020-01-01 --end 2020-01-31 \
+  # Process full 1 month for test purposes 
+    python data_collection.py process \
+    --start 2020-01-01 \
+    --end 2020-01-31 \
+    --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+
+  # Process full 1 year for test purposes 
+    python data_collection.py process \
+    --start 2020-01-01 \
+    --end 2020-12-31 \
     --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
 
   # Process full 5.5 year range in monthly batches
   python data_collection.py process --start 2020-01-01 --end 2025-09-30 \\
-      --output ./data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+      --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
 
   # Check current progress
   python data_collection.py progress \\
-      --output ./data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+      --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
   
   # Resume interrupted collection (same command, auto-skips processed URLs)
   python data_collection.py process --start 2020-01-01 --end 2025-09-30 \\
-      --output ./data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+      --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
         """
     )
     
