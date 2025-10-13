@@ -31,7 +31,33 @@ venv\Scripts\activate     # On Windows
 ### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
+
 ```
+
+
+python data_collection.py \
+    --start 2020-01-01 \
+    --end 2025-09-30 \
+    --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali \
+    --gpu-batch-size 16 \
+    --verbose
+
+# For maximum speed (if you have VRAM headroom):
+python data_collection.py \
+    --start 2020-01-01 \
+    --end 2025-09-30 \
+    --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali \
+    --gpu-batch-size 16 \
+    --verbose
+
+# If running out of memory, reduce batch size:
+python data_collection.py \
+    --start 2020-01-01 \
+    --end 2025-09-30 \
+    --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali \
+    --gpu-batch-size 4 \
+    --verbose
+
 
 ### 4. Setup Gemini API Key 🔑
 
