@@ -25,9 +25,13 @@ soundcloud:
   audio_codec: mp3
   rate_limit_seconds: 0.3            # pause between track downloads
 
-# Speech-to-text — Wav2Vec2 Somali ASR (see transcription/asr_wav2vec2.py).
+# Speech-to-text models (see the transcription/ package).
 asr:
-  wav2vec2_model: Mustafaa4a/ASR-Somali
+  wav2vec2_model: Mustafaa4a/ASR-Somali        # production Somali Wav2Vec2 ASR
+  whisper_model_size: small                    # OpenAI Whisper size (asr_whisper.py)
+  somali_whisper_model: steja/whisper-small-somali
+  elevenlabs_model: scribe_v1                  # ElevenLabs Scribe model
+  gemini_model: gemini-2.0-flash               # Gemini transcription / translation
   batch_size: 8                      # GPU inference batch size (4-16 recommended)
   use_fp16: true                     # mixed precision (L4 Tensor Cores)
   chunk_length_s: 60                 # audio chunk length, seconds
@@ -76,3 +80,8 @@ geo:
     3: "#FF9F1C"
     4: "#FF4040"
     5: "#800020"
+
+# Retry policy for the directory batch runner (transcription/batch.py).
+retry:
+  count: 3
+  delay_seconds: 10

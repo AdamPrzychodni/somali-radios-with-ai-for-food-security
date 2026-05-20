@@ -51,7 +51,7 @@ analysis = [
 ]
 # External API clients (require keys in .env).
 apis = [
-    "google-generativeai",
+    "google-genai",
     "elevenlabs",
 ]
 # Running the Jupyter notebooks.
