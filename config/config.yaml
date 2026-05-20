@@ -39,3 +39,15 @@ asr:
 outputs:
   transcriptions_csv: transcriptions_database.csv
   transcription_log: .transcription_log.json
+
+# Translation — Somali -> English (see translation/translate_hf.py).
+translation:
+  models:
+    nllb_3_3b: facebook/nllb-200-3.3B
+    madlad_3b: google/madlad400-3b-mt
+    madlad_10b: google/madlad400-10b-mt
+  src_lang: som_Latn
+  tgt_lang: eng_Latn
+  text_column: transcript_text       # column in the transcripts CSV to translate
+  max_tokens: 450                    # per-chunk token budget (model limit is 512)
+  overlap_sentences: 2               # sentence overlap between consecutive chunks
