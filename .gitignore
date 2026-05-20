@@ -43,6 +43,12 @@ venv/
 ENV/
 .venv
 
+# Packaging / build artifacts
+*.egg-info/
+*.egg
+build/
+dist/
+
 # Jupyter
 .ipynb_checkpoints/
 
