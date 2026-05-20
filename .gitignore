@@ -3,6 +3,9 @@
 .env.local
 .env.production
 
+# Local config overrides (committed template: config/config.local.yaml.example)
+config/config.local.yaml
+
 # Google Cloud credentials (CRITICAL - never commit!)
 *.json
 service-account-*.json
@@ -13,11 +16,16 @@ credentials.json
 
 # Downloaded content
 downloads/
-data/
 *.mp3
 *.mp4
 *.wav
 *.m4a
+
+# Data — keep the folder layout (.gitkeep + READMEs), ignore actual datasets
+data/**
+!data/**/
+!data/README.md
+!data/**/.gitkeep
 
 # Logs
 *.log
@@ -34,6 +42,9 @@ env/
 venv/
 ENV/
 .venv
+
+# Jupyter
+.ipynb_checkpoints/
 
 # IDE
 .vscode/

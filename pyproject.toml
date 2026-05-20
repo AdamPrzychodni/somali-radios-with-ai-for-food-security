@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "somali-foodsec-radio"
+version = "0.1.0"
+description = "AI pipeline turning Somali radio broadcasts (Radio Ergo) into food-security insights."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Adam Przychodni" }]
+keywords = ["food-security", "speech-to-text", "somali", "radio", "ipc", "humanitarian"]
+
+# Core dependencies: light, broadly needed, enough to import the package and run the
+# pure-logic test suite. The heavy ML/geo stacks live in the optional groups below.
+dependencies = [
+    "numpy",
+    "pandas",
+    "pyyaml",
+    "python-dateutil",
+    "python-dotenv",
+    "requests",
+    "beautifulsoup4",
+    "tqdm",
+    "rapidfuzz",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+# Audio collection + speech-to-text.
+asr = [
+    "torch",
+    "transformers",
+    "librosa",
+    "soundfile",
+    "pydub",
+    "yt-dlp",
+    "openai-whisper",
+]
+# Translation, topic modelling, geospatial work and PDF feedback parsing.
+analysis = [
+    "transformers",
+    "sentencepiece",
+    "sentence-transformers",
+    "bertopic",
+    "spacy",
+    "scikit-learn",
+    "geopandas",
+    "pdfplumber",
+]
+# External API clients (require keys in .env).
+apis = [
+    "google-generativeai",
+    "elevenlabs",
+]
+# Running the Jupyter notebooks.
+notebooks = [
+    "jupyter",
+    "ipython",
+    "ipykernel",
+]
+# Development / testing.
+dev = [
+    "pytest",
+]
+# Everything at once.
+all = [
+    "somali-foodsec-radio[asr,analysis,apis,notebooks,dev]",
+]
+
+[project.scripts]
+radio-collect = "somali_foodsec_radio.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
