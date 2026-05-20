@@ -1,337 +1,167 @@
-# 📻 Leveraging Local Radio for Real-Time Food Security Insights: An AI-Powered Approach - Preliminary Phase 🇸🇴  
+# 📻 Leveraging Local Radio for Real-Time Food Security Insights 🇸🇴
 
-This project, in collaboration with **Zero Hunger Lab**, analyzes Somali radio broadcasts to extract food security insights using **Speech-to-Text (STT)** and **LLMs**. The goal is to assess whether radio stations provide timely and useful information to improve food security indicators.  
+An AI pipeline, in collaboration with **Zero Hunger Lab**, that turns Somali radio
+broadcasts (Radio Ergo) into food-security insights. Broadcasts are downloaded,
+transcribed, translated, mined for themes, and combined with caller-feedback reports
+to adjust **IPC** (Integrated Phase Classification) food-security phases.
 
 ---
 
-## 🚀 Installation & Setup
+## Pipeline
 
-### Prerequisites
-- Python 3.8 or higher
-- Git
-- Internet connection for API access
+```
+01 collect ─→ 03 transcribe ─→ 04 translate ─→ 06 topic-model ─┐
+                                                               ├─→ IPC phase update
+       Radio Ergo feedback PDFs ─→ 07 impact signals ──────────┘
+       05 explores the IPC baseline data the analysis builds on.
+```
 
-### 1. Clone the Repository
+| Stage         | What it does                                              | Models / tools                          |
+|---------------|-----------------------------------------------------------|------------------------------------------|
+| Collection    | Download broadcasts from SoundCloud                       | `yt-dlp`                                 |
+| Transcription | Speech-to-text (Somali)                                   | Wav2Vec2 `Mustafaa4a/ASR-Somali`, Whisper, ElevenLabs Scribe, Gemini |
+| Translation   | Somali → English                                          | NLLB-200, MADLAD-400, Gemini             |
+| Topic model   | Themes + locations from transcripts                       | BERTopic, spaCy                          |
+| Feedback      | Parse caller-feedback PDFs → impact signals → IPC phases  | `pdfplumber`, `rapidfuzz`, GeoPandas     |
+
+---
+
+## Project structure
+
+```
+somali-radios-with-ai-for-food-security/
+├── config/
+│   └── config.yaml              # paths, model ids, thresholds (no secrets)
+├── data/                        # raw / interim / processed / external (gitignored)
+├── notebooks/                   # 7 pipeline notebooks — see notebooks/README.md
+├── src/somali_foodsec_radio/    # the package
+│   ├── collection/              # SoundCloud download
+│   ├── transcription/           # speech-to-text engines + batch runner
+│   ├── translation/             # Somali → English
+│   ├── topics/                  # BERTopic theme extraction
+│   ├── geo/                     # IPC geometries + location matching
+│   ├── feedback/                # caller-feedback → IPC phase updates
+│   ├── config.py / paths.py     # config loading, path resolution
+│   └── cli.py                   # the `radio-collect` console script
+├── tests/                       # pytest suite (pure-logic functions)
+├── pyproject.toml               # package metadata + dependencies
+└── .env.example                 # template for API keys
+```
+
+---
+
+## Installation
+
+Requires **Python 3.10+**.
+
 ```bash
+# 1. Clone
 git clone https://github.com/AdamPrzychodni/somali-radios-with-ai-for-food-security.git
 cd somali-radios-with-ai-for-food-security
+
+# 2. Virtual environment
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+# 3. Install the package (editable)
+pip install -e '.[all]'            # everything
+#   or install only what you need:
+#   pip install -e '.[asr]'        # audio download + speech-to-text
+#   pip install -e '.[analysis]'   # translation, topics, geo, PDF feedback
+#   pip install -e '.[apis]'       # Gemini / ElevenLabs API clients
+
+# 4. spaCy model (needed for topic modelling)
+python -m spacy download en_core_web_sm
+
+# 5. ffmpeg (needed for audio processing)
+#   macOS:  brew install ffmpeg
+#   Ubuntu: sudo apt-get install ffmpeg
+
+# 6. API keys (only for the Gemini / ElevenLabs engines)
+cp .env.example .env               # then fill in your keys
 ```
 
-### 2. Create Virtual Environment (Recommended)
+---
+
+## Usage
+
+### Command line
+
+Download and transcribe a date range of broadcasts with the GPU-optimised
+Wav2Vec2 engine:
+
 ```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate  # On Linux/Mac
-# or
-venv\Scripts\activate     # On Windows
+radio-collect --start 2022-01-01 --end 2022-03-31 \
+    --output data/interim/transcripts --verbose
 ```
 
-### 3. Install Dependencies
-```bash
-pip install -r requirements.txt
+`radio-collect --help` lists all options.
 
-```
+### Notebooks
 
+The seven notebooks drive the pipeline stage by stage. Start Jupyter and follow
+the run order in [`notebooks/README.md`](notebooks/README.md):
 
-python data_collection.py \
-    --start 2020-01-01 \
-    --end 2025-09-30 \
-    --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali \
-    --gpu-batch-size 16 \
-    --verbose
-
-# For maximum speed (if you have VRAM headroom):
-python data_collection.py \
-    --start 2020-01-01 \
-    --end 2025-09-30 \
-    --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali \
-    --gpu-batch-size 16 \
-    --verbose
-
-# If running out of memory, reduce batch size:
-python data_collection.py \
-    --start 2020-01-01 \
-    --end 2025-09-30 \
-    --output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali \
-    --gpu-batch-size 4 \
-    --verbose
-
-
-### 4. Setup Gemini API Key 🔑
-
-The project now supports **Google Gemini API** for enhanced transcription accuracy. Follow these steps:
-
-#### 4.1 Create Your API Key
-1. **Visit Google AI Studio**: Go to [https://aistudio.google.com](https://aistudio.google.com)
-2. **Sign in** with your Google Account
-3. **Accept terms**: Accept the Google APIs Terms of Service and Gemini API Additional Terms
-4. **Create API key**: Click "Get API key" → "Create API key" 
-5. **Choose project**: Select existing Google Cloud project or create new one
-6. **Copy key**: Save the generated API key securely
-
-#### 4.2 Configure Environment Variable
-Choose one of these methods:
-
-**Method A: Environment Variable (Recommended)**
-```bash
-# Check your shell
-echo $SHELL
-
-cd somali-radios-with-ai-for-food-security
-
-# If using bash
-nano ~/.bashrc
-# Add this line:
-export GEMINI_API_KEY="your_api_key_here"
-# Save and apply:
-source ~/.bashrc
-
-# If using zsh  
-nano ~/.zshrc
-# Add this line:
-export GEMINI_API_KEY="your_api_key_here"
-# Save and apply:
-source ~/.zshrc
-```
-
-**Method B: .env File (Project-specific)**
-```bash
-cd somali-radios-with-ai-for-food-security
-
-# Create .env file in project root
-echo 'GEMINI_API_KEY="your_api_key_here"' > .env
-```
-
-#### 4.3 Install Audio Processing Tools
-```bash
-# Install ffmpeg (required for audio processing)
-# Ubuntu/Debian:
-sudo apt-get install ffmpeg
-
-# Fedora:
-sudo dnf install ffmpeg
-
-# Arch:
-sudo pacman -S ffmpeg
-```
-
-#### 4.4 Verify Setup
-Run the verification script to ensure everything works:
-```python
-# Test your setup
-from setup_verification import run_full_setup_test
-run_full_setup_test()
-```
-
-### 5. Verify Installation
-You can now run the Jupyter notebooks:
 ```bash
 jupyter notebook
 ```
 
-Navigate to either `1_phase/` or `2_phase/` directories to access the project notebooks.
+Each notebook is a thin driver — the real logic lives in the
+`somali_foodsec_radio` package, so notebooks stay short and the same code is
+reused, tested, and importable.
 
----
+### As a library
 
-## 📂 Project Structure
-
-```
-somali-radios-with-ai-for-food-security/
-├── 1_phase/
-│   └── Radio_Ergo_Somali_Speech_to_Text_for_Food_Security.ipynb
-├── 2_phase/
-│   ├── 1_EDA_IPC_Soamli.ipynb
-│   ├── 2_data_collection.ipynb
-│   ├── 3_transcription.ipynb
-│   ├── 4_topic_modeling.ipynb
-│   └── 4_update_IPC_based_on_radioergo.ipynb
-├── enhanced_downloader.py       # 🆕 New streaming transcription module
-├── setup_verification.py        # 🆕 API setup verification
-├── .env.example                # 🆕 Environment template
-├── README.md
-└── requirements.txt
-```
-
----
-
-## 🆕 New Features: On-the-Fly Transcription
-
-### Stream Processing Workflow
-The enhanced system now supports **memory-efficient transcription** without storing audio files:
-
-```
-Download Audio → Load to Memory → Transcribe → Save Text → Cleanup
-```
-
-### Key Capabilities
-- **🎯 Stream Processing**: No temporary file storage required
-- **🧠 Multiple AI Engines**: Support for both Gemini API and Whisper
-- **💾 Memory Efficient**: Automatic cleanup and batch processing
-- **📝 Smart Logging**: Tracks processing history and prevents duplicates
-
-### Quick Usage Examples
-
-**Single URL Transcription:**
 ```python
-from enhanced_downloader import stream_transcribe_single_url
-
-success, transcript_path = stream_transcribe_single_url(
-    url="https://soundcloud.com/radio-ergo/idaacadda-01-jul-2024",
-    output_dir="transcripts"
-)
-```
-
-**Date Range Processing:**
-```python
-from enhanced_downloader import stream_transcribe_date_range
-
-results = stream_transcribe_date_range(
-    profile_url="https://soundcloud.com/radio-ergo",
-    start_date="2024-07-01",
-    end_date="2024-07-31",
-    output_dir="july_transcripts"
-)
-```
-
-**Existing MP3 Files:**
-```python
-from enhanced_downloader import batch_transcribe_existing_mp3s
-
-results = batch_transcribe_existing_mp3s(
-    input_dir="./audio_files",
-    output_dir="transcripts",
-    batch_size=3
-)
+from somali_foodsec_radio.collection import download_radio_ergo_by_date
+from somali_foodsec_radio.translation.pipeline import run_translation_pipeline
+from somali_foodsec_radio.feedback import create_impact_signals
 ```
 
 ---
 
-## 📂 Project Documents  
+## Configuration
 
-### 📑 **Preliminary Research Phase**  
-*Leveraging Local Radio for Real-Time Food Security Insights: An AI-Powered Approach - Preliminary Phase.pdf*  
-
-This document outlines the initial phase of the research project, exploring how AI can extract food security insights from Somali radio broadcasts. Key objectives include:  
-- Identifying relevant radio stations, with a focus on **Radio Ergo 📻**  
-- Collecting audio samples  
-- Testing **speech-to-text (STT)** technologies for the Somali language  
-- Evaluating the feasibility of enhancing food security monitoring in Somalia, despite **challenges with transcription accuracy**  
-
-### 🛠 **Implementation: Speech-to-Text Pipeline**  
-*Radio Ergo Somali Speech-to-Text for Food Security.ipynb*  
-
-This Jupyter Notebook implements a pipeline to:  
-✅ Download broadcasts from **Radio Ergo's SoundCloud channel**  
-✅ Transcribe them using **Whisper** and a **fine-tuned Whisper model for Somali language**
-✅ **NEW**: Enhanced with Gemini API for improved transcription accuracy
-✅ **NEW**: Memory-efficient streaming processing
+- **`config/config.yaml`** — paths, model ids, chunking params, thresholds, theme
+  maps. Loaded by `somali_foodsec_radio.config`. Copy
+  `config/config.local.yaml.example` to `config.local.yaml` (gitignored) to
+  override any setting locally.
+- **`.env`** — API keys (`GEMINI_API_KEY`, `ELEVENLABS_API_KEY`). Never committed.
 
 ---
 
-## 🔧 Troubleshooting
+## Testing
 
-### Installation Issues
-If you encounter issues during installation:
-- **Permission errors**: Try using `pip install --user -r requirements.txt`
-- **Package conflicts**: Make sure you're using a virtual environment
-- **Python version**: Ensure you have Python 3.8 or higher with `python --version`
-
-### API Setup Issues
-If Gemini API is not working:
-- **API Key**: Verify your key is correct and active at [Google AI Studio](https://aistudio.google.com)
-- **Internet**: Ensure stable internet connection
-- **Quota**: Check you haven't exceeded free tier limits
-- **Environment**: Run the verification script to diagnose issues
-
-### Audio Processing Issues
-If audio downloads or transcription fail:
-- **ffmpeg**: Ensure ffmpeg is installed and accessible
-- **Permissions**: Check file system permissions for output directories
-- **Memory**: For large files, increase batch size or reduce concurrent processing
-
-### Common Error Solutions
 ```bash
-# Fix missing ffmpeg
-sudo apt-get update && sudo apt-get install ffmpeg
-
-# Fix Python package issues
-pip install --upgrade pip
-pip install --force-reinstall google-generativeai
-
-# Reset environment
-deactivate && source venv/bin/activate
+pytest
 ```
 
----
-
-## 🌍 Impact & Goals
-
-This project aims to bridge the gap between **real-time local information** and **food security monitoring**, leveraging AI-driven insights from radio broadcasts to:
-
-- **Enhance early warning systems** for food security crises
-- **Provide timely information** to humanitarian organizations
-- **Support evidence-based decision making** for food assistance programs
-- **Demonstrate AI applications** in humanitarian contexts
-
-### Research Questions
-- Can AI accurately transcribe Somali radio broadcasts?
-- Do radio stations provide actionable food security information?
-- How can local media complement traditional monitoring systems?
+The suite covers the pure-logic functions (URL parsing, text chunking, location
+matching, impact-signal detection, IPC phase math) — no GPU, network or API keys
+required.
 
 ---
 
-## 📊 Data Privacy & Ethics
+## Data privacy & ethics
 
-- All processing respects copyright and fair use guidelines
-- No personal data is collected from radio broadcasts
-- API usage follows Google's terms of service
-- Research conducted under academic ethics protocols
+- All processing respects copyright and fair-use guidelines.
+- No personal data is collected from radio broadcasts.
+- API usage follows the respective providers' terms of service.
+- Research is conducted under academic ethics protocols.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
-This is an academic research project. For questions or collaboration:
+This is an academic research project.
+
 - **Contact**: Adam Przychodni
 - **Institution**: Zero Hunger Lab collaboration
-- **Purpose**: Food security research and humanitarian applications
+- **Purpose**: Food-security research and humanitarian applications
 
 ---
 
-## 📄 License
+## License
 
-This project is for academic research purposes. Please respect copyright of original radio content and API terms of service.
-
----
-
-**🎯 Next Steps**: Run the setup verification, configure your API key, and start exploring the enhanced transcription capabilities!
-
-
-Docker 
-
-docker build -t somali-radios-ai .
-
-docker run -p 8888:8888 -v $(pwd):/app somali-radios-ai
-
-1. Open a new terminal.
-
-2. Find your container ID:
-Run docker ps to see your active containers. You'll see something like this:
-
-Bash
-
-CONTAINER ID   IMAGE               COMMAND                  CREATED          STATUS          PORTS                    NAMES
-8e0a36304286   somali-radios-ai    "jupyter notebook --…"   About a minute   Up About a min  0.0.0.0:8888->8888/tcp   vigilant_goldberg
-Your container ID is the value in the first column (e.g., 8e0a36304286).
-
-3. Execute the command:
-Use the docker exec command, replacing <container_id> with your actual ID. This command tells Docker to run your script from within the /app/src directory inside the container.
-
-Bash
-
-docker exec <container_id> python src/data_collection.py process \
---start 2020-01-01 \
---end 2020-01-31 \
---output ../data/02_intermediate/transcripts/mustafaa4a_ASR-Somali
+Released under the [MIT License](LICENSE). Please respect the copyright of the
+original radio content and the terms of service of any APIs you use.

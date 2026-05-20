@@ -1,24 +1,10 @@
-# Core Data Science & ML
-numpy
-pandas
-scikit-learn
-scipy
-matplotlib
-
-# Deep Learning
-torch
-transformers
-sentence-transformers
-
-# Development Environment
-jupyter
-ipython
-
-# Common Utilities
-requests
-tqdm
-python-dotenv
-yt-dlp
-google-generativeai 
-pydub
-librosa
+# Dependencies are declared in pyproject.toml.
+#
+# This file installs the project (editable) with every optional extra so the
+# familiar `pip install -r requirements.txt` workflow still works.
+#
+# For a smaller install, use the extras directly, e.g.:
+#   pip install -e '.[asr]'        # audio download + speech-to-text
+#   pip install -e '.[analysis]'   # translation, topics, geo, PDF feedback
+#   pip install -e '.[apis]'       # Gemini / ElevenLabs API clients
+-e .[all]
