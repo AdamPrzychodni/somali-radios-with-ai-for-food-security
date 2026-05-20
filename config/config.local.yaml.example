@@ -1,0 +1,14 @@
+# Local configuration overrides.
+#
+# Copy this file to `config.local.yaml` (which is gitignored) to override any setting
+# from config.yaml on your machine. Values here are deep-merged on top of config.yaml,
+# so you only need to list the keys you want to change.
+#
+# Examples:
+#
+# paths:
+#   data_raw: /mnt/big-disk/somali-radio/raw
+#
+# asr:
+#   batch_size: 4          # smaller GPU? lower the batch size
+#   use_fp16: false        # CPU-only run

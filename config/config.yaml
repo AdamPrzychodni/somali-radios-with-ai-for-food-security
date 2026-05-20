@@ -1,0 +1,41 @@
+# Project configuration. Plain YAML — see src/somali_foodsec_radio/config.py for the
+# loader. A gitignored config/config.local.yaml (if present) is deep-merged on top;
+# copy config.local.yaml.example to start one.
+#
+# Sections are added as pipeline stages are built out: `translation`, `topics`, `geo`
+# and `feedback` join later.
+
+project:
+  name: somali_foodsec_radio
+
+# Values under `paths:` are resolved to absolute paths against the repository root.
+paths:
+  data_raw: data/raw
+  data_interim: data/interim
+  transcripts: data/interim/transcripts
+  translations: data/interim/translations
+  data_processed: data/processed
+  data_external: data/external
+  logs: logs
+
+# SoundCloud source — Radio Ergo broadcasts.
+soundcloud:
+  profile_url: https://soundcloud.com/radio-ergo
+  broadcast_slug: idaacadda          # URL pattern: <profile>/idaacadda-DD-mon-YYYY
+  audio_codec: mp3
+  rate_limit_seconds: 0.3            # pause between track downloads
+
+# Speech-to-text — Wav2Vec2 Somali ASR (see transcription/asr_wav2vec2.py).
+asr:
+  wav2vec2_model: Mustafaa4a/ASR-Somali
+  batch_size: 8                      # GPU inference batch size (4-16 recommended)
+  use_fp16: true                     # mixed precision (L4 Tensor Cores)
+  chunk_length_s: 60                 # audio chunk length, seconds
+  chunk_overlap_ratio: 0.1           # fractional overlap between chunks
+  target_sample_rate: 16000
+  batch_size_days: 30                # date-range chunk size for crash recovery
+
+# Output filenames written into the transcripts directory.
+outputs:
+  transcriptions_csv: transcriptions_database.csv
+  transcription_log: .transcription_log.json
