@@ -85,3 +85,24 @@ geo:
 retry:
   count: 3
   delay_seconds: 10
+
+# Radio Ergo caller-feedback analysis (see the feedback/ package).
+feedback:
+  impact_signals:                    # signal name -> keywords matched in call remarks
+    drought_warning: [drought, water shortage, dry]
+    flood_risk: [flood, river, overflow]
+    aid_request: [aid, help, assistance, displacement, idp]
+    livestock_disease: [livestock, goats, sick, disease, cattle, death]
+    rainfall_positive: [rain, rainfall, good rain]
+  thresholds:                        # weekly signal count needed to shift a phase
+    drought_warnings: 5
+    flood_risks: 3
+    aid_requests: 5
+    livestock_diseases: 3
+    rainfall_positives: 3
+  phase_effects:                     # IPC phase delta when a threshold is crossed
+    drought_warnings: 1
+    flood_risks: 1
+    aid_requests: 1
+    livestock_diseases: 1
+    rainfall_positives: -1

@@ -76,3 +76,40 @@ def plot_ipc_maps(
     plt.suptitle("Somalia IPC Maps", fontsize=22)
     plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     plt.show()
+
+
+def plot_ipc_map_single(geo_df, week) -> None:
+    """Plot the IPC ``overall_phase_C`` map for a single week.
+
+    Args:
+        geo_df: GeoDataFrame with an ``overall_phase_C`` column.
+        week: The week-start timestamp, used in the title.
+    """
+    fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+
+    geo_df["color"] = geo_df["overall_phase_C"].map(PHASE_COLORS)
+
+    for phase, color in PHASE_COLORS.items():
+        subset = geo_df[geo_df["overall_phase_C"] == phase]
+        if not subset.empty:
+            subset.plot(ax=ax, color=color, edgecolor="black", linewidth=0.5)
+
+    ax.set_title(
+        f"IPC Phase Map - Week Starting {week.strftime('%Y-%m-%d')}", fontsize=16
+    )
+    ax.set_xlabel("Longitude", fontsize=12)
+    ax.set_ylabel("Latitude", fontsize=12)
+    ax.grid(True)
+    ax.axis("equal")
+
+    patches = [
+        mpatches.Patch(color=color, label=f"Phase {phase}")
+        for phase, color in PHASE_COLORS.items()
+    ]
+    fig.legend(
+        handles=patches, title="IPC Phase", loc="lower center", ncol=5, fontsize=12
+    )
+
+    plt.suptitle("Somalia IPC Map (Dynamic Update)", fontsize=22)
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    plt.show()

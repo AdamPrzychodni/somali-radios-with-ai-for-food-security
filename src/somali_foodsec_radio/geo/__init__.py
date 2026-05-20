@@ -5,13 +5,22 @@ so importing this package is cheap.
 """
 
 from .loaders import load_geojson, load_transcripts
-from .matching import assign_geography
-from .plotting import PHASE_COLORS, plot_ipc_maps
+from .matching import (
+    assign_geography,
+    fuzzy_match_locations,
+    match_location_to_geo_df,
+    normalize_location_name,
+)
+from .plotting import PHASE_COLORS, plot_ipc_map_single, plot_ipc_maps
 
 __all__ = [
     "PHASE_COLORS",
     "assign_geography",
+    "fuzzy_match_locations",
     "load_geojson",
     "load_transcripts",
+    "match_location_to_geo_df",
+    "normalize_location_name",
+    "plot_ipc_map_single",
     "plot_ipc_maps",
 ]
