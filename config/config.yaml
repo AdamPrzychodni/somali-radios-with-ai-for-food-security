@@ -51,3 +51,28 @@ translation:
   text_column: transcript_text       # column in the transcripts CSV to translate
   max_tokens: 450                    # per-chunk token budget (model limit is 512)
   overlap_sentences: 2               # sentence overlap between consecutive chunks
+
+# Topic modelling (see topics/).
+topics:
+  spacy_model: en_core_web_sm        # spaCy model for location NER
+  prob_threshold: 0.1                # min topic probability to assign a theme
+  bertopic:
+    min_topic_size: 5
+    n_gram_range: [1, 2]
+  theme_map:                         # BERTopic topic id -> human-readable theme
+    0: Rainfall
+    1: Crop Failure
+    2: Livestock Health
+    3: Higher Food Prices
+    4: Humanitarian Aid
+
+# IPC geometries and location matching (see geo/).
+geo:
+  area_col: area                     # GeoDataFrame column holding IPC area names
+  fuzzy_score_cutoff: 80             # min similarity (0-100) to accept a match
+  phase_colors:                      # IPC phase -> map colour
+    1: "#B7E4C7"
+    2: "#FFE066"
+    3: "#FF9F1C"
+    4: "#FF4040"
+    5: "#800020"
