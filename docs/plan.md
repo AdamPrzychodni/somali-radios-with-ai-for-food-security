@@ -37,7 +37,7 @@ Everything below follows from that, plus a handful of bugs that made results sil
 | **Code quality** | Good. `src/somali_foodsec_radio/` is a clean package, one subpackage per pipeline stage, ~3.2k lines. |
 | **Tests** | Pure logic only — chunking, URL parsing, phase math, signal detection. Fast (~1.3 s). |
 | **Measurement** | **None, at any stage.** No gold set, no metric, no baseline, anywhere in the repo. |
-| **Data** | **`data/` is empty.** The 2020–2025 archive, the IPC GeoJSON and the feedback PDFs all need re-collecting. |
+| **Data** | **`data/` is empty.** The 2020–2025 archive, the IPC GeoJSON and the feedback PDFs all need re-collecting. The collector was re-verified against the live source on 2026-09-04 — it found 5 Radio Ergo broadcasts for 2022-01-01..07, so the archive is recoverable. |
 | **Reproducibility** | Addressed in Phase 0: seeds, a lockfile, CI and output provenance did not exist before. |
 
 The pipeline is a chain: **collect → transcribe → translate → topic-model → adjust IPC phase**,
@@ -77,6 +77,9 @@ the notebook's framing implied a trajectory.
 
 **Smaller ones.** `adjust_ipc_phases` subtracted raw event *counts* from a *phase* (a 12-event
 week saturated at phase 5) — units did not match, and it was superseded by the threshold variant.
+The negation window is 4 tokens either side, erring wide on purpose: a false positive on
+`rainfall_positive` reports an improvement during a drought, while a false negative only loses one
+−1. Section 4's hand-labelling is what will tell us whether that trade is set correctly.
 `assign_geography` returned one area per broadcast, so a bulletin covering three regions was
 attributed to one, and it used `"Unknown"` where its sibling used `None`. `plot_time_series` put
 matplotlib inside a domain-logic module.
@@ -238,7 +241,7 @@ and thresholds go in `config/config.yaml`.
 | Phase | Work | Exit gate | Effort |
 |---|---|---|---|
 | **0 — Stop being wrong** | §3: bugs, dead config, seeds, uv/ruff/CI, merge to main | Config is live, themes are stable, tests run on push | ~2–3 days ✅ |
-| **0.5 — Re-collect** | Rebuild `data/`: broadcasts, IPC releases, feedback PDFs | A week's slice runs end to end through 03 → 04 → 06 | ~1–2 days |
+| **0.5 — Re-collect** | Rebuild `data/`: broadcasts, IPC releases, feedback PDFs. The collector is confirmed working; what is unverified is the IPC releases and the feedback PDFs. | A week's slice runs end to end through 03 → 04 → 06 | ~1–2 days |
 | **1 — Does this work?** | §4: IPC validation + signal labelling | A number for "beats no-change: yes / no" | ~3–4 days |
 | **2a — *if yes*: amplify** | §5 A→D, plus translation and topic metrics | Best engine shipped, every stage has a metric | ~2–3 weeks |
 | **2b — *if no*: rebuild the rule** | Replace keyword+threshold with a fitted model on labelled signals | Beats no-change, or the finding is written up honestly | ~1–2 weeks |
@@ -268,8 +271,6 @@ engine.
   correspondent network?
 - **Data residency** — if GDPR / EU residency applies to the Zero Hunger Lab collaboration,
   self-hosting or EU-region API endpoints are the cleanest path.
-- **Does the SoundCloud collector still work?** It has not been run since the archive was lost;
-  page markup changes silently.
 - **Transcribe + translate coupling** — SeamlessM4T v2 can do Somali→English speech translation in
   one step (the only strong open option). If of interest, this could eventually merge the
   transcribe and translate stages.
