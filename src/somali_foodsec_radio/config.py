@@ -1,20 +1,24 @@
-"""Load project configuration from ``config/config.yaml``.
+"""Load and validate project configuration from ``config/config.yaml``.
 
 Configuration is plain YAML. A gitignored ``config/config.local.yaml`` (if present) is
-deep-merged on top, so machine-specific overrides never reach version control. Every
-value under the ``paths:`` section is resolved to an absolute path against the
-repository root — the codebase no longer carries hardcoded ``/teamspace/...`` paths.
+deep-merged on top, so machine-specific overrides never reach version control. The
+merged result is validated against :mod:`somali_foodsec_radio.config_schema` before any
+path resolution, so a typo fails at load rather than mid-run. Every value under the
+``paths:`` section is then resolved to an absolute path against the repository root.
 """
 
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from . import config_schema
 from .paths import project_root
 
 _CONFIG_DIR = "config"
@@ -48,15 +52,17 @@ def _resolve_paths(config: dict, root: Path) -> dict:
     return config
 
 
-def load_config(path: str | Path | None = None) -> dict:
-    """Load and return the project configuration as a dict.
+def load_config(path: str | Path | None = None, validate: bool = True) -> dict:
+    """Load, validate and return the project configuration as a dict.
 
     Args:
         path: Optional explicit path to the main YAML file. Defaults to
             ``<project_root>/config/config.yaml``.
+        validate: Check the merged config against the schema before returning it.
 
     Raises:
         FileNotFoundError: if the main config file does not exist.
+        pydantic.ValidationError: if the merged config does not match the schema.
     """
     root = project_root()
     main_path = Path(path) if path else root / _CONFIG_DIR / _MAIN_FILE
@@ -74,6 +80,9 @@ def load_config(path: str | Path | None = None) -> dict:
         with open(local_path, encoding="utf-8") as fh:
             local = yaml.safe_load(fh) or {}
         config = _deep_merge(config, local)
+
+    if validate:
+        config_schema.validate(config)
 
     return _resolve_paths(config, root)
 
@@ -100,3 +109,14 @@ def get_setting(dotted_key: str, default: Any = None) -> Any:
         else:
             return default
     return node
+
+
+def config_hash(config: dict | None = None) -> str:
+    """Short stable digest of the configuration, for stamping onto outputs.
+
+    Paths are excluded: they are machine-specific and would make otherwise identical
+    runs look different.
+    """
+    payload = {k: v for k, v in (config or get_config()).items() if k != _PATHS_SECTION}
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:12]

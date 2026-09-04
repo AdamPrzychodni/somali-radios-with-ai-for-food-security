@@ -1,27 +1,14 @@
-"""Aggregate weekly feedback impact and adjust IPC food-security phases."""
+"""Aggregate weekly feedback impact and adjust IPC food-security phases.
+
+Thresholds and phase effects come from ``config.yaml`` (``feedback:``) — they are
+the model's scientific parameters and must be tunable there, not in code.
+"""
 
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
 import pandas as pd
 
-# Weekly signal count needed to shift an IPC phase.
-THRESHOLDS: dict[str, int] = {
-    "drought_warnings": 5,
-    "flood_risks": 3,
-    "aid_requests": 5,
-    "livestock_diseases": 3,
-    "rainfall_positives": 3,
-}
-
-# IPC phase delta applied when a signal crosses its threshold.
-PHASE_EFFECTS: dict[str, int] = {
-    "drought_warnings": +1,
-    "flood_risks": +1,
-    "aid_requests": +1,
-    "livestock_diseases": +1,
-    "rainfall_positives": -1,
-}
+from ..config import get_setting
 
 
 def aggregate_weekly_impact(feedback_matched: pd.DataFrame) -> pd.DataFrame:
@@ -51,28 +38,6 @@ def aggregate_weekly_impact(feedback_matched: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def adjust_ipc_phases(geo_df, weekly_impact_df: pd.DataFrame, week: pd.Timestamp):
-    """Adjust IPC phases for *week*: high-impact events raise, rainfall lowers.
-
-    Phases are clipped to the valid 1-5 range. Returns a modified copy of *geo_df*.
-    """
-    updated_geo_df = geo_df.copy()
-    week_feedback = weekly_impact_df[weekly_impact_df["week_start"] == week]
-
-    for _, row in week_feedback.iterrows():
-        area = row["matched_area"]
-        if area not in updated_geo_df["group_name"].values:
-            continue
-        idx = updated_geo_df[updated_geo_df["group_name"] == area].index
-
-        phase_change = row["high_impact_events"] - row["rainfall_positives"]
-        updated_geo_df.loc[idx, "overall_phase_C"] = (
-            updated_geo_df.loc[idx, "overall_phase_C"] + phase_change
-        ).clip(lower=1, upper=5)
-
-    return updated_geo_df
-
-
 def adjust_ipc_phases_with_threshold(
     geo_df,
     weekly_impact_df: pd.DataFrame,
@@ -83,77 +48,47 @@ def adjust_ipc_phases_with_threshold(
     """Adjust IPC phases for *week* using per-signal thresholds and weighted effects.
 
     A signal contributes its *phase_effect* only once its weekly count reaches the
-    *threshold*. Phases are clipped to 1-5. Returns a modified copy of *geo_df*.
+    *threshold*. Phases are clipped to 1-5.
+
+    **This is a per-week deviation from the baseline, not a trajectory.** Each call
+    starts from the *geo_df* it is given, so passing the same baseline for every week
+    yields "what this week's feedback alone implies", and each week is independently
+    interpretable. To accumulate instead, feed the returned frame into the next call.
+
+    Args:
+        geo_df: IPC GeoDataFrame with ``group_name`` and ``overall_phase_C`` columns.
+        weekly_impact_df: Output of :func:`aggregate_weekly_impact`.
+        week: The ``week_start`` to score.
+        thresholds: Signal -> weekly count needed to shift a phase. Defaults to
+            ``feedback.thresholds`` in the config.
+        phase_effects: Signal -> phase delta once the threshold is crossed. Defaults
+            to ``feedback.phase_effects``.
+
+    Returns:
+        A modified copy of *geo_df*.
     """
-    thresholds = thresholds if thresholds is not None else THRESHOLDS
-    phase_effects = phase_effects if phase_effects is not None else PHASE_EFFECTS
+    if thresholds is None:
+        thresholds = get_setting("feedback.thresholds", {})
+    if phase_effects is None:
+        phase_effects = get_setting("feedback.phase_effects", {})
 
     updated_geo_df = geo_df.copy()
     week_feedback = weekly_impact_df[weekly_impact_df["week_start"] == week]
 
     for _, row in week_feedback.iterrows():
         area = row["matched_area"]
-        if area not in updated_geo_df["group_name"].values:
+        matches = updated_geo_df["group_name"] == area
+        if not matches.any():
             continue
-        idx = updated_geo_df[updated_geo_df["group_name"] == area].index
 
-        phase_change = 0
-        for event_type, threshold in thresholds.items():
-            if row[event_type] >= threshold:
-                phase_change += phase_effects[event_type]
+        phase_change = sum(
+            phase_effects[event_type]
+            for event_type, threshold in thresholds.items()
+            if row[event_type] >= threshold
+        )
 
-        updated_geo_df.loc[idx, "overall_phase_C"] = (
-            updated_geo_df.loc[idx, "overall_phase_C"] + phase_change
+        updated_geo_df.loc[matches, "overall_phase_C"] = (
+            updated_geo_df.loc[matches, "overall_phase_C"] + phase_change
         ).clip(lower=1, upper=5)
 
     return updated_geo_df
-
-
-def plot_time_series(weekly_impact_df: pd.DataFrame, area: str) -> None:
-    """Plot the weekly feedback-signal time series for a single area."""
-    area_data = weekly_impact_df[weekly_impact_df["matched_area"] == area]
-    if area_data.empty:
-        print(f"No data for {area}")
-        return
-
-    area_data = area_data.sort_values("week_start")
-
-    plt.figure(figsize=(14, 7))
-    plt.plot(
-        area_data["week_start"],
-        area_data["drought_warnings"],
-        label="Drought Warnings",
-        marker="o",
-    )
-    plt.plot(
-        area_data["week_start"],
-        area_data["flood_risks"],
-        label="Flood Risks",
-        marker="o",
-    )
-    plt.plot(
-        area_data["week_start"],
-        area_data["aid_requests"],
-        label="Aid Requests",
-        marker="o",
-    )
-    plt.plot(
-        area_data["week_start"],
-        area_data["livestock_diseases"],
-        label="Livestock Diseases",
-        marker="o",
-    )
-    plt.plot(
-        area_data["week_start"],
-        area_data["rainfall_positives"],
-        label="Positive Rainfall",
-        marker="o",
-    )
-    plt.title(f"Weekly Feedback Signals in {area}", fontsize=16)
-    plt.xlabel("Week Start", fontsize=12)
-    plt.ylabel("Number of Reports", fontsize=12)
-    plt.grid(True)
-    plt.legend()
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()

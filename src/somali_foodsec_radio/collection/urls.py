@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
+from ..config import get_setting
 from ..logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -87,16 +88,17 @@ def extract_username_from_url(profile_url: str) -> str:
 
 def generate_url_patterns(username: str, date: datetime) -> list[str]:
     """Generate candidate broadcast URLs for *date* (Radio-Ergo-style slug variants)."""
+    slug = get_setting("soundcloud.broadcast_slug", "idaacadda")
     base_url = f"https://soundcloud.com/{username}"
     day = date.day
     month_full = date.strftime("%B").lower()
     month_abbr = date.strftime("%b").lower()
     year = date.year
     patterns = [
-        f"idaacadda-{day:02d}-{month_abbr}-{year}",
-        f"idaacadda-{day}-{month_abbr}-{year}",
-        f"idaacadda-{day:02d}-{month_full}-{year}",
-        f"idaacadda-{day}-{month_full}-{year}",
+        f"{slug}-{day:02d}-{month_abbr}-{year}",
+        f"{slug}-{day}-{month_abbr}-{year}",
+        f"{slug}-{day:02d}-{month_full}-{year}",
+        f"{slug}-{day}-{month_full}-{year}",
         f"show-{day:02d}-{month_abbr}-{year}",
         f"broadcast-{day}-{month_abbr}-{year}",
     ]

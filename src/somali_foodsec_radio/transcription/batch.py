@@ -13,6 +13,8 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 
+from ..config import get_setting
+
 
 def run_directory_batch(
     input_dir: str,
@@ -20,8 +22,8 @@ def run_directory_batch(
     work_fn: Callable[[str], str],
     input_glob: str = "*.mp3",
     output_suffix: str = ".txt",
-    retry_count: int = 3,
-    delay_between_failures: int = 10,
+    retry_count: int | None = None,
+    delay_between_failures: int | None = None,
     failure_log: str = "failed.json",
 ) -> dict[str, str]:
     """Run *work_fn* over every file in *input_dir* matching *input_glob*.
@@ -33,7 +35,14 @@ def run_directory_batch(
     Returns:
         A dict mapping each input filename to its status: ``"success"``, ``"skipped"``,
         or ``"failed: <error>"``.
+
+    Retry behaviour defaults to ``retry.count`` / ``retry.delay_seconds`` in the config.
     """
+    if retry_count is None:
+        retry_count = get_setting("retry.count", 3)
+    if delay_between_failures is None:
+        delay_between_failures = get_setting("retry.delay_seconds", 10)
+
     os.makedirs(output_dir, exist_ok=True)
     source_files = glob.glob(os.path.join(input_dir, input_glob))
 

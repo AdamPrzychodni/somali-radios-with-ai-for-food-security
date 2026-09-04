@@ -11,7 +11,13 @@ from .matching import (
     match_location_to_geo_df,
     normalize_location_name,
 )
-from .plotting import PHASE_COLORS, plot_ipc_map_single, plot_ipc_maps
+from .plotting import (
+    PHASE_COLORS,
+    phase_colors,
+    plot_ipc_map_single,
+    plot_ipc_maps,
+    plot_weekly_signals,
+)
 
 __all__ = [
     "PHASE_COLORS",
@@ -21,6 +27,8 @@ __all__ = [
     "load_transcripts",
     "match_location_to_geo_df",
     "normalize_location_name",
+    "phase_colors",
     "plot_ipc_map_single",
     "plot_ipc_maps",
+    "plot_weekly_signals",
 ]

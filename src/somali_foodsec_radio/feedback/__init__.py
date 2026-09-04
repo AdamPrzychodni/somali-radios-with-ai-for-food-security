@@ -6,24 +6,21 @@ Pipeline: :func:`~somali_foodsec_radio.feedback.pdf_extract.extract_detailed_cal
 (see :mod:`somali_foodsec_radio.geo.matching`) ->
 :func:`~somali_foodsec_radio.feedback.ipc_update.aggregate_weekly_impact` -> phase
 adjustment.
+
+Keyword lists, thresholds and phase effects live in ``config.yaml`` under ``feedback:``.
 """
 
-from .ipc_update import (
-    PHASE_EFFECTS,
-    THRESHOLDS,
-    adjust_ipc_phases,
-    adjust_ipc_phases_with_threshold,
-    aggregate_weekly_impact,
-    plot_time_series,
-)
+from .ipc_update import adjust_ipc_phases_with_threshold, aggregate_weekly_impact
 from .pdf_extract import clean_date, extract_detailed_calls_from_pdf, is_valid_date
-from .signals import DEFAULT_IMPACT_SIGNALS, create_impact_signals, infer_impact_level
+from .signals import (
+    SIGNAL_NAMES,
+    create_impact_signals,
+    infer_impact_level,
+    signal_present,
+)
 
 __all__ = [
-    "DEFAULT_IMPACT_SIGNALS",
-    "PHASE_EFFECTS",
-    "THRESHOLDS",
-    "adjust_ipc_phases",
+    "SIGNAL_NAMES",
     "adjust_ipc_phases_with_threshold",
     "aggregate_weekly_impact",
     "clean_date",
@@ -31,5 +28,5 @@ __all__ = [
     "extract_detailed_calls_from_pdf",
     "infer_impact_level",
     "is_valid_date",
-    "plot_time_series",
+    "signal_present",
 ]

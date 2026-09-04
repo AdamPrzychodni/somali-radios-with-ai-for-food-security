@@ -1,12 +1,16 @@
 # Project configuration. Plain YAML — see src/somali_foodsec_radio/config.py for the
-# loader. A gitignored config/config.local.yaml (if present) is deep-merged on top;
-# copy config.local.yaml.example to start one.
+# loader, which validates this file against a schema on load. A gitignored
+# config/config.local.yaml (if present) is deep-merged on top; copy
+# config.local.yaml.example to start one.
 #
-# Sections are added as pipeline stages are built out: `translation`, `topics`, `geo`
-# and `feedback` join later.
+# Every key here is read by the code. If a key stops being used, delete it — a config
+# value nobody reads is worse than no config value, because tuning it looks like it
+# should do something.
 
 project:
   name: somali_foodsec_radio
+  seed: 42                           # threaded into UMAP/BERTopic; without it topic
+                                     # ids reshuffle and theme_map silently mislabels
 
 # Values under `paths:` are resolved to absolute paths against the repository root.
 paths:
@@ -69,6 +73,14 @@ topics:
     2: Livestock Health
     3: Higher Food Prices
     4: Humanitarian Aid
+  theme_keywords:                    # words each theme's topic must still contain.
+                                     # verify_theme_map() raises when a fitted topic no
+                                     # longer overlaps these, so drift fails loudly.
+    Rainfall: [rain, rains, rainfall, wet, water, season]
+    Crop Failure: [crop, crops, harvest, farm, farming, yield, failure]
+    Livestock Health: [livestock, goats, cattle, camel, animals, herd]
+    Higher Food Prices: [price, prices, market, cost, food, expensive]
+    Humanitarian Aid: [aid, humanitarian, assistance, relief, agency, help]
 
 # IPC geometries and location matching (see geo/).
 geo:
@@ -89,11 +101,27 @@ retry:
 # Radio Ergo caller-feedback analysis (see the feedback/ package).
 feedback:
   impact_signals:                    # signal name -> keywords matched in call remarks
-    drought_warning: [drought, water shortage, dry]
-    flood_risk: [flood, river, overflow]
+    # A bare `dry` matched "dry season", and a bare `death`/`sick` matched human
+    # casualties and human illness. Both are gone; matching is also negation-aware
+    # (see `negators` below), so "no rain" no longer counts as positive rainfall.
+    drought_warning: [drought, water shortage, dry spell, drying up]
+    flood_risk: [flood, flooding, flooded, river, overflow]
     aid_request: [aid, help, assistance, displacement, idp]
-    livestock_disease: [livestock, goats, sick, disease, cattle, death]
-    rainfall_positive: [rain, rainfall, good rain]
+    livestock_disease:
+      [livestock, goats, cattle, camels, disease, animal disease, sick animals,
+       sick livestock]
+    rainfall_positive: [rain, rains, rainfall, good rain]
+  negators:                          # cancel a keyword match within `negation_window`
+                                     # ("no" is quoted: YAML would read it as false)
+    ["no", not, without, lack, lacking, lacks, absence, absent, failed, failure,
+     waiting, awaiting, need, needs, needed, shortage, insufficient, scarce,
+     scarcity, never, delayed, poor, little, hardly, barely, stopped, ceased,
+     missing, denied, unable, cannot, "didn't", "don't", "doesn't", "hasn't",
+     "haven't", "wasn't", "weren't", "isn't", "aren't"]
+  negation_window: 4                 # tokens searched either side of a keyword match.
+                                     # Erring wide is deliberate: a false positive on
+                                     # rainfall_positive reports an improvement during a
+                                     # drought, a false negative only loses one -1.
   thresholds:                        # weekly signal count needed to shift a phase
     drought_warnings: 5
     flood_risks: 3

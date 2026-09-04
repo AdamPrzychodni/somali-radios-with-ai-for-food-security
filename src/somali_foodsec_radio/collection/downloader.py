@@ -42,7 +42,7 @@ def get_yt_dlp_options(
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
+                "preferredcodec": get_setting("soundcloud.audio_codec", "mp3"),
                 "preferredquality": audio_quality,
             }
         ],
@@ -57,13 +57,14 @@ def get_yt_dlp_options(
 def download_single_track(
     url: str, output_dir: Path | str, audio_quality: str = "192"
 ) -> str | None:
-    """Download a single SoundCloud track; return the MP3 path or ``None`` on failure."""
+    """Download a single SoundCloud track; return the audio path or ``None`` on failure."""
     import yt_dlp
 
     if not validate_soundcloud_url(url):
         logger.error("Invalid SoundCloud URL: %s", url)
         return None
 
+    codec = get_setting("soundcloud.audio_codec", "mp3")
     ydl_opts = get_yt_dlp_options(output_dir, audio_quality)
 
     # Pre-check the expected filename so existing downloads are skipped.
@@ -72,10 +73,10 @@ def download_single_track(
             info_probe = ydl.extract_info(url, download=False)
             if info_probe:
                 expected = ydl.prepare_filename(info_probe)
-                mp3_expected = f"{os.path.splitext(expected)[0]}.mp3"
-                if Path(mp3_expected).exists():
-                    logger.info("Skipping (already exists): %s", mp3_expected)
-                    return mp3_expected
+                audio_expected = f"{os.path.splitext(expected)[0]}.{codec}"
+                if Path(audio_expected).exists():
+                    logger.info("Skipping (already exists): %s", audio_expected)
+                    return audio_expected
     except Exception as exc:  # noqa: BLE001 - precheck is best-effort
         logger.debug("Precheck failed for %s: %s", url, exc)
 
@@ -96,13 +97,13 @@ def download_single_track(
                 return None
 
             base, _ = os.path.splitext(filename)
-            mp3_file = f"{base}.mp3"
-            if not Path(mp3_file).exists():
-                logger.error("Download failed for %s: MP3 file not created.", url)
+            audio_file = f"{base}.{codec}"
+            if not Path(audio_file).exists():
+                logger.error("Download failed for %s: %s not created.", url, audio_file)
                 return None
 
-            logger.info("Successfully downloaded: %s", mp3_file)
-            return mp3_file
+            logger.info("Successfully downloaded: %s", audio_file)
+            return audio_file
     except Exception as exc:  # noqa: BLE001 - report and continue
         logger.error("Download failed for %s: %s", url, exc)
         return None
@@ -124,7 +125,7 @@ def download_multiple_tracks(
             downloaded_files.append(result)
         else:
             failed_urls.append(url)
-        time.sleep(1)  # rate limiting
+        time.sleep(get_setting("soundcloud.rate_limit_seconds", 1))
 
     logger.info("%s", "=" * 60)
     logger.info("Download Summary:")

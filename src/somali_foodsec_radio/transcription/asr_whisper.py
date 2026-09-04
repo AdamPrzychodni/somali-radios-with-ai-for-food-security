@@ -15,6 +15,7 @@ from pathlib import Path
 
 import torch
 
+from ..config import get_setting
 from ..logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -28,6 +29,8 @@ WHISPER_MODEL_SIZES = [
     "large-v2",
     "large-v3",
 ]
+# `somali` is overridable via `asr.somali_whisper_model`; the others are fixed
+# upstream ids used for comparison runs.
 SOMALI_WHISPER_MODELS = {
     "somali": "steja/whisper-small-somali",
     "multilingual": "openai/whisper-small",
@@ -48,7 +51,8 @@ class WhisperEngine:
     The model is loaded lazily on the first :meth:`transcribe` call.
     """
 
-    def __init__(self, model_size: str = "small", use_gpu: bool = True):
+    def __init__(self, model_size: str | None = None, use_gpu: bool = True):
+        model_size = model_size or get_setting("asr.whisper_model_size", "small")
         if model_size not in WHISPER_MODEL_SIZES:
             logger.warning(
                 "Unknown Whisper model size '%s'; using 'small'.", model_size
@@ -95,7 +99,11 @@ class SomaliWhisperEngine:
             logger.warning("Unknown model type '%s'; using 'somali'.", model_type)
             model_type = "somali"
         self.model_type = model_type
-        self.model_id = SOMALI_WHISPER_MODELS[model_type]
+        self.model_id = (
+            get_setting("asr.somali_whisper_model", SOMALI_WHISPER_MODELS["somali"])
+            if model_type == "somali"
+            else SOMALI_WHISPER_MODELS[model_type]
+        )
         self.device = _select_device(use_gpu)
         self._pipeline = None
 

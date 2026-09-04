@@ -5,7 +5,12 @@ importing this package is cheap.
 """
 
 from ..text_utils import clean_text
-from .bertopic_model import fit_topic_model, select_themes_per_doc
+from .bertopic_model import (
+    fit_topic_model,
+    select_themes_per_doc,
+    topic_map_mismatches,
+    verify_theme_map,
+)
 from .locations import extract_locations
 from .theme_location import build_theme_location_pairs, run_topic_pipeline
 
@@ -16,4 +21,6 @@ __all__ = [
     "fit_topic_model",
     "run_topic_pipeline",
     "select_themes_per_doc",
+    "topic_map_mismatches",
+    "verify_theme_map",
 ]

@@ -3,7 +3,6 @@
 import pandas as pd
 
 from somali_foodsec_radio.feedback.ipc_update import (
-    adjust_ipc_phases,
     adjust_ipc_phases_with_threshold,
     aggregate_weekly_impact,
 )
@@ -91,16 +90,28 @@ class TestAdjustIpcPhasesWithThreshold:
         result = adjust_ipc_phases_with_threshold(geo, weekly, WEEK)
         assert result.loc[0, "overall_phase_C"] == 1
 
-
-class TestAdjustIpcPhases:
-    def test_high_impact_raises_and_rainfall_lowers(self):
-        geo = pd.DataFrame({"group_name": ["Mudug"], "overall_phase_C": [2]})
-        weekly = pd.DataFrame([_weekly_row(high_impact_events=2, rainfall_positives=1)])
-        result = adjust_ipc_phases(geo, weekly, WEEK)
-        assert result.loc[0, "overall_phase_C"] == 3  # 2 + (2 - 1)
-
     def test_unknown_area_is_skipped(self):
         geo = pd.DataFrame({"group_name": ["Bay"], "overall_phase_C": [2]})
-        weekly = pd.DataFrame([_weekly_row(area="Mudug", high_impact_events=3)])
-        result = adjust_ipc_phases(geo, weekly, WEEK)
+        weekly = pd.DataFrame([_weekly_row(area="Mudug", drought_warnings=9)])
+        result = adjust_ipc_phases_with_threshold(geo, weekly, WEEK)
         assert result.loc[0, "overall_phase_C"] == 2
+
+    def test_thresholds_come_from_config(self):
+        """Editing config/config.yaml must change the output — it used to not."""
+        geo = pd.DataFrame({"group_name": ["Mudug"], "overall_phase_C": [3]})
+        weekly = pd.DataFrame([_weekly_row(drought_warnings=2)])
+
+        assert (
+            adjust_ipc_phases_with_threshold(geo, weekly, WEEK).loc[
+                0, "overall_phase_C"
+            ]
+            == 3
+        )
+        lowered = adjust_ipc_phases_with_threshold(
+            geo,
+            weekly,
+            WEEK,
+            thresholds={"drought_warnings": 2},
+            phase_effects={"drought_warnings": 1},
+        )
+        assert lowered.loc[0, "overall_phase_C"] == 4

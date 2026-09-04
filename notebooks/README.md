@@ -5,7 +5,7 @@ These notebooks are thin **drivers**: the reusable logic lives in the
 pipeline stage. Install the package first, from the repo root:
 
 ```bash
-pip install -e '.[all]'
+uv sync --all-extras
 ```
 
 Model ids, paths and thresholds come from `config/config.yaml`; API keys come

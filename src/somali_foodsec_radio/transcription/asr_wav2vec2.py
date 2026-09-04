@@ -14,6 +14,8 @@ import librosa
 import torch
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
+from ..config import get_setting
+
 
 class SomaliASREngine:
     """GPU-optimised transcription engine with batched inference.
@@ -23,7 +25,7 @@ class SomaliASREngine:
 
     def __init__(
         self,
-        model_name: str = "Mustafaa4a/ASR-Somali",
+        model_name: str | None = None,
         batch_size: int = 8,
         use_fp16: bool = True,
         verbose: bool = False,
@@ -31,7 +33,8 @@ class SomaliASREngine:
         """Initialise the GPU-optimised ASR model.
 
         Args:
-            model_name: HuggingFace model identifier.
+            model_name: HuggingFace model identifier. Defaults to
+                ``asr.wav2vec2_model`` in the config.
             batch_size: Number of audio chunks to process simultaneously.
             use_fp16: Enable mixed precision for faster inference on L4 GPUs.
             verbose: Enable detailed logging.
@@ -42,10 +45,12 @@ class SomaliASREngine:
         self.batch_size = batch_size
         self.use_fp16 = use_fp16
         self.verbose = verbose
-        self._setup_model(model_name)
+        self._setup_model(
+            model_name or get_setting("asr.wav2vec2_model", "Mustafaa4a/ASR-Somali")
+        )
 
     def _setup_model(self, model_name: str) -> None:
-        """Load the model with GPU optimisations.
+        """Load the model with GPU optimisations, recording the id on the instance.
 
         Raises:
             RuntimeError: If the model fails to load.
@@ -99,15 +104,15 @@ class SomaliASREngine:
         if self.model is None or self.processor is None:
             raise RuntimeError("ASR model is not initialized.")
 
-        target_sr = 16000
+        target_sr = get_setting("asr.target_sample_rate", 16000)
+        chunk_length_s = get_setting("asr.chunk_length_s", 60)
+        overlap_ratio = get_setting("asr.chunk_overlap_ratio", 0.1)
 
         try:
             audio, _ = librosa.load(io.BytesIO(audio_data), sr=target_sr)
 
-            # Larger 60s chunks for GPU batch processing on L4.
-            chunk_length_s = 60
             chunk_length = chunk_length_s * target_sr
-            overlap = int(chunk_length * 0.1)  # 10% overlap for accuracy
+            overlap = int(chunk_length * overlap_ratio)
 
             chunks = []
             for i in range(0, len(audio), chunk_length - overlap):

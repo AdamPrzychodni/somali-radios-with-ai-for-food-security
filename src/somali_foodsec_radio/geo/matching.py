@@ -7,39 +7,49 @@ import re
 import pandas as pd
 from rapidfuzz import fuzz, process
 
+from ..config import get_setting
 from ..text_utils import clean_text
 
 
 def assign_geography(
     locations: list[str],
     geo_df,
-    area_col: str = "area",
-    score_cutoff: int = 80,
-) -> str:
-    """Fuzzy-match extracted *locations* to an IPC area name.
+    area_col: str | None = None,
+    score_cutoff: int | None = None,
+) -> list[str]:
+    """Fuzzy-match extracted *locations* to IPC area names.
+
+    Returns **every** distinct area that clears the cutoff, not just the best one:
+    a bulletin covering three regions is about three regions. An empty list means
+    nothing matched — the same "no match" sentinel the rest of this module uses.
 
     Args:
         locations: Extracted place names.
         geo_df: GeoDataFrame (or DataFrame) with an *area_col* column.
-        area_col: Column holding IPC area names.
-        score_cutoff: Minimum similarity score (0-100).
-
-    Returns:
-        The best-matching area name, or ``"Unknown"`` if nothing clears the cutoff.
+        area_col: Column holding IPC area names. Defaults to ``geo.area_col``.
+        score_cutoff: Minimum similarity score (0-100). Defaults to
+            ``geo.fuzzy_score_cutoff``.
     """
+    if area_col is None:
+        area_col = get_setting("geo.area_col", "area")
+    if score_cutoff is None:
+        score_cutoff = get_setting("geo.fuzzy_score_cutoff", 80)
+
     area_list = geo_df[area_col].dropna().tolist()
     clean_areas = [clean_text(a) for a in area_list]
-    best = ("Unknown", 0)
+    if not clean_areas:
+        return []
+
+    matched: list[str] = []
     for loc in locations:
-        loc_clean = clean_text(loc)
-        match, score, _ = process.extractOne(
-            query=loc_clean,
+        match, score, index = process.extractOne(
+            query=clean_text(loc),
             choices=clean_areas,
             scorer=fuzz.token_sort_ratio,
         )
-        if match and score >= score_cutoff and score > best[1]:
-            best = (area_list[clean_areas.index(match)], score)
-    return best[0]
+        if score >= score_cutoff and area_list[index] not in matched:
+            matched.append(area_list[index])
+    return matched
 
 
 def normalize_location_name(name: str) -> str:
@@ -76,13 +86,16 @@ def match_location_to_geo_df(feedback_df: pd.DataFrame, geo_df) -> pd.DataFrame:
 
 
 def fuzzy_match_locations(
-    feedback_df: pd.DataFrame, geo_df, score_cutoff: int = 80
+    feedback_df: pd.DataFrame, geo_df, score_cutoff: int | None = None
 ) -> pd.DataFrame:
     """Fuzzy-match feedback rows still missing a ``matched_area``.
 
     Returns a copy of *feedback_df* with ``matched_area`` filled in where a fuzzy
-    match clears *score_cutoff*.
+    match clears *score_cutoff* (default: ``geo.fuzzy_score_cutoff``).
     """
+    if score_cutoff is None:
+        score_cutoff = get_setting("geo.fuzzy_score_cutoff", 80)
+
     df = feedback_df.copy()
     geo_areas = (
         pd.concat(
@@ -99,7 +112,7 @@ def fuzzy_match_locations(
         result = process.extractOne(loc, geo_areas)
         # rapidfuzz returns (choice, score, index), or None when there are no choices.
         if result is not None and result[1] >= score_cutoff:
-            df.at[idx, "matched_area"] = result[0].title()
+            df.loc[idx, "matched_area"] = result[0].title()
         else:
-            df.at[idx, "matched_area"] = None
+            df.loc[idx, "matched_area"] = None
     return df

@@ -11,6 +11,7 @@ import gc
 import pandas as pd
 import torch
 
+from ..config import get_setting
 from .chunking import create_semantic_chunks
 from .translate_hf import batch_translate_dataframe, load_model
 
@@ -30,15 +31,24 @@ def run_translation_pipeline(
     df: pd.DataFrame,
     model_name: str,
     model_type: str,
-    src_lang: str = "som_Latn",
-    tgt_lang: str = "eng_Latn",
+    src_lang: str | None = None,
+    tgt_lang: str | None = None,
     num_rows_to_translate: int | None = None,
-    text_column: str = "transcript_text",
+    text_column: str | None = None,
 ) -> tuple[pd.DataFrame, str] | None:
     """Load a model, translate *text_column*, free VRAM, and return the result.
 
+    Language codes and the source column default to the ``translation:`` section of the
+    config.
+
     Returns ``(translated_dataframe, new_column_name)`` on success, ``None`` on failure.
     """
+    src_lang = src_lang or get_setting("translation.src_lang", "som_Latn")
+    tgt_lang = tgt_lang or get_setting("translation.tgt_lang", "eng_Latn")
+    text_column = text_column or get_setting(
+        "translation.text_column", "transcript_text"
+    )
+
     print("\n" + "#" * 80)
     print(f"STARTING PIPELINE FOR: {model_name} (Type: {model_type})")
     print("#" * 80)

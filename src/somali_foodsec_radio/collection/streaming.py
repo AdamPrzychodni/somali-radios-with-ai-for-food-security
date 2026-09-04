@@ -20,7 +20,9 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 
+from ..config import get_setting
 from ..logging_utils import SilentLogger
+from ..provenance import PROVENANCE_COLUMNS, run_metadata, write_run_json
 from .urls import generate_urls_for_range
 
 try:
@@ -96,6 +98,20 @@ class StreamingSoundCloudDownloader:
                 batch_size=batch_size, use_fp16=use_fp16, verbose=verbose
             )
 
+        # The sidecar carries the full run description; each CSV row carries only the
+        # provenance columns, so appends keep matching the header.
+        self.provenance = run_metadata(
+            model_id=getattr(
+                self.transcription_engine,
+                "model_name",
+                get_setting("asr.wav2vec2_model", None),
+            ),
+            batch_size=batch_size,
+            use_fp16=use_fp16,
+        )
+        self._row_provenance = {k: self.provenance[k] for k in PROVENANCE_COLUMNS}
+        write_run_json(self.structured_data_file, self.provenance)
+
         if verbose:
             vram = self.transcription_engine.get_vram_usage()
             print(
@@ -143,6 +159,7 @@ class StreamingSoundCloudDownloader:
                 "transcript_length_chars",
                 "transcript_length_words",
                 "transcript_text",
+                *PROVENANCE_COLUMNS,
             ]
             pd.DataFrame(columns=columns).to_csv(self.structured_data_file, index=False)
 
@@ -261,7 +278,7 @@ class StreamingSoundCloudDownloader:
     def _save_structured_data(self, record: dict) -> None:
         """Append one record to the CSV database."""
         try:
-            new_row = pd.DataFrame([record])
+            new_row = pd.DataFrame([{**record, **self._row_provenance}])
             new_row.to_csv(
                 self.structured_data_file, mode="a", header=False, index=False
             )

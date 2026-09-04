@@ -20,16 +20,27 @@ IPC_GEO_DF = pd.DataFrame(
 
 class TestAssignGeography:
     def test_fuzzy_matches_close_name(self):
-        assert assign_geography(["Hiran"], GEO_DF) == "Hiraan"
+        assert assign_geography(["Hiran"], GEO_DF) == ["Hiraan"]
 
     def test_exact_name_matches(self):
-        assert assign_geography(["Gedo"], GEO_DF) == "Gedo"
+        assert assign_geography(["Gedo"], GEO_DF) == ["Gedo"]
 
-    def test_returns_unknown_when_nothing_clears_cutoff(self):
-        assert assign_geography(["Atlantis"], GEO_DF) == "Unknown"
+    def test_returns_every_matching_area(self):
+        """A bulletin covering three regions is about three regions."""
+        assert assign_geography(["Gedo", "Hiran", "Bay"], GEO_DF) == [
+            "Gedo",
+            "Hiraan",
+            "Bay",
+        ]
 
-    def test_empty_locations_returns_unknown(self):
-        assert assign_geography([], GEO_DF) == "Unknown"
+    def test_duplicate_locations_are_not_repeated(self):
+        assert assign_geography(["Gedo", "Gedo"], GEO_DF) == ["Gedo"]
+
+    def test_returns_empty_when_nothing_clears_cutoff(self):
+        assert assign_geography(["Atlantis"], GEO_DF) == []
+
+    def test_empty_locations_returns_empty(self):
+        assert assign_geography([], GEO_DF) == []
 
 
 class TestNormalizeLocationName:

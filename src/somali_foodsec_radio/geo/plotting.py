@@ -1,4 +1,4 @@
-"""Plot Somalia IPC phase maps."""
+"""Plot Somalia IPC phase maps and weekly feedback-signal series."""
 
 from __future__ import annotations
 
@@ -6,15 +6,25 @@ from typing import Literal
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import pandas as pd
+
+from ..config import get_setting
 
 # IPC phase colours (light green -> dark red), matching the official IPC maps.
+# Used when `geo.phase_colors` is absent from the config.
 PHASE_COLORS = {
-    1: "#B7E4C7",  # light green
-    2: "#FFE066",  # yellow
-    3: "#FF9F1C",  # orange
-    4: "#FF4040",  # red
-    5: "#800020",  # dark red
+    1: "#B7E4C7",
+    2: "#FFE066",
+    3: "#FF9F1C",
+    4: "#FF4040",
+    5: "#800020",
 }
+
+
+def phase_colors() -> dict[int, str]:
+    """IPC phase -> colour, from ``geo.phase_colors`` in the config."""
+    configured = get_setting("geo.phase_colors", PHASE_COLORS)
+    return {int(phase): colour for phase, colour in configured.items()}
 
 
 def plot_ipc_maps(
@@ -51,10 +61,10 @@ def plot_ipc_maps(
         axes = [axes]
 
     for ax, (title, phase_column, period_dates) in zip(axes, periods, strict=False):
-        geo_df["color"] = geo_df[phase_column].map(PHASE_COLORS)
+        geo_df["color"] = geo_df[phase_column].map(phase_colors())
 
         # Plot each phase separately so the legend can be controlled.
-        for phase, color in PHASE_COLORS.items():
+        for phase, color in phase_colors().items():
             subset = geo_df[geo_df[phase_column] == phase]
             if not subset.empty:
                 subset.plot(ax=ax, color=color, edgecolor="black", linewidth=0.5)
@@ -67,7 +77,7 @@ def plot_ipc_maps(
 
     patches = [
         mpatches.Patch(color=color, label=f"Phase {phase}")
-        for phase, color in PHASE_COLORS.items()
+        for phase, color in phase_colors().items()
     ]
     fig.legend(
         handles=patches, title="IPC Phase", loc="lower center", ncol=5, fontsize=12
@@ -87,9 +97,9 @@ def plot_ipc_map_single(geo_df, week) -> None:
     """
     fig, ax = plt.subplots(1, 1, figsize=(12, 12))
 
-    geo_df["color"] = geo_df["overall_phase_C"].map(PHASE_COLORS)
+    geo_df["color"] = geo_df["overall_phase_C"].map(phase_colors())
 
-    for phase, color in PHASE_COLORS.items():
+    for phase, color in phase_colors().items():
         subset = geo_df[geo_df["overall_phase_C"] == phase]
         if not subset.empty:
             subset.plot(ax=ax, color=color, edgecolor="black", linewidth=0.5)
@@ -104,7 +114,7 @@ def plot_ipc_map_single(geo_df, week) -> None:
 
     patches = [
         mpatches.Patch(color=color, label=f"Phase {phase}")
-        for phase, color in PHASE_COLORS.items()
+        for phase, color in phase_colors().items()
     ]
     fig.legend(
         handles=patches, title="IPC Phase", loc="lower center", ncol=5, fontsize=12
@@ -112,4 +122,33 @@ def plot_ipc_map_single(geo_df, week) -> None:
 
     plt.suptitle("Somalia IPC Map (Dynamic Update)", fontsize=22)
     plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    plt.show()
+
+
+def plot_weekly_signals(weekly_impact_df: pd.DataFrame, area: str) -> None:
+    """Plot the weekly feedback-signal time series for a single area."""
+    area_data = weekly_impact_df[weekly_impact_df["matched_area"] == area]
+    if area_data.empty:
+        print(f"No data for {area}")
+        return
+
+    area_data = area_data.sort_values("week_start")
+    series = {
+        "drought_warnings": "Drought Warnings",
+        "flood_risks": "Flood Risks",
+        "aid_requests": "Aid Requests",
+        "livestock_diseases": "Livestock Diseases",
+        "rainfall_positives": "Positive Rainfall",
+    }
+
+    plt.figure(figsize=(14, 7))
+    for column, label in series.items():
+        plt.plot(area_data["week_start"], area_data[column], label=label, marker="o")
+    plt.title(f"Weekly Feedback Signals in {area}", fontsize=16)
+    plt.xlabel("Week Start", fontsize=12)
+    plt.ylabel("Number of Reports", fontsize=12)
+    plt.grid(True)
+    plt.legend()
+    plt.xticks(rotation=45)
+    plt.tight_layout()
     plt.show()
