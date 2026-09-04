@@ -16,7 +16,6 @@ import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 from tqdm import tqdm
@@ -60,7 +59,7 @@ class StreamingSoundCloudDownloader:
         batch_size: int = 8,
         use_fp16: bool = True,
         verbose: bool = False,
-        transcription_engine: Optional[object] = None,
+        transcription_engine: object | None = None,
     ):
         """Initialise the downloader.
 
@@ -104,7 +103,7 @@ class StreamingSoundCloudDownloader:
                 f"{vram['reserved_gb']:.2f} GB reserved"
             )
 
-    def _find_ffmpeg(self) -> Optional[str]:
+    def _find_ffmpeg(self) -> str | None:
         """Locate the ffmpeg binary."""
         if self.verbose:
             print("Checking for ffmpeg...")
@@ -133,20 +132,25 @@ class StreamingSoundCloudDownloader:
         """Create the CSV database with headers if it does not exist."""
         if not self.structured_data_file.exists():
             columns = [
-                "id", "url", "title", "date_recorded", "date_processed",
-                "processing_duration_seconds", "audio_size_mb",
-                "audio_duration_seconds", "transcript_length_chars",
-                "transcript_length_words", "transcript_text",
+                "id",
+                "url",
+                "title",
+                "date_recorded",
+                "date_processed",
+                "processing_duration_seconds",
+                "audio_size_mb",
+                "audio_duration_seconds",
+                "transcript_length_chars",
+                "transcript_length_words",
+                "transcript_text",
             ]
-            pd.DataFrame(columns=columns).to_csv(
-                self.structured_data_file, index=False
-            )
+            pd.DataFrame(columns=columns).to_csv(self.structured_data_file, index=False)
 
-    def _load_transcription_log(self) -> Dict:
+    def _load_transcription_log(self) -> dict:
         """Load the processing log used to skip already-processed URLs."""
         if self.log_file.exists():
             try:
-                with open(self.log_file, "r") as fh:
+                with open(self.log_file) as fh:
                     return json.load(fh)
             except json.JSONDecodeError:
                 return {}
@@ -157,21 +161,19 @@ class StreamingSoundCloudDownloader:
         with open(self.log_file, "w") as fh:
             json.dump(self.transcription_log, fh, indent=2)
 
-    def _download_to_memory(self, url: str) -> Tuple[Optional[bytes], Dict]:
+    def _download_to_memory(self, url: str) -> tuple[bytes | None, dict]:
         """Download audio for *url* into an in-memory buffer."""
         import yt_dlp
         from yt_dlp.utils import DownloadError
 
-        metadata: Dict = {"success": False, "error": None, "info": {}}
+        metadata: dict = {"success": False, "error": None, "info": {}}
 
         ydl_opts = {
             "format": "bestaudio/best",
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
-            "postprocessors": [
-                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}
-            ],
+            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
             "logger": SilentLogger(),
         }
         if self.ffmpeg_path:
@@ -215,8 +217,8 @@ class StreamingSoundCloudDownloader:
         return None, metadata
 
     def _transcribe_audio_data(
-        self, audio_data: bytes, metadata: Dict
-    ) -> Tuple[Optional[str], Dict]:
+        self, audio_data: bytes, metadata: dict
+    ) -> tuple[str | None, dict]:
         """GPU-accelerated transcription of in-memory audio."""
         start_time = time.time()
 
@@ -256,7 +258,7 @@ class StreamingSoundCloudDownloader:
             )
             return None, metadata
 
-    def _save_structured_data(self, record: Dict) -> None:
+    def _save_structured_data(self, record: dict) -> None:
         """Append one record to the CSV database."""
         try:
             new_row = pd.DataFrame([record])
@@ -268,12 +270,12 @@ class StreamingSoundCloudDownloader:
                 print(f"⚠️ Could not save to database: {exc}")
 
     def _save_transcript_file(
-        self, transcript: str, metadata: Dict, base_filename: str
+        self, transcript: str, metadata: dict, base_filename: str
     ) -> str:
         """Save a transcript as a human-readable text file."""
         transcript_file = self.output_dir / f"{base_filename}.txt"
         with open(transcript_file, "w", encoding="utf-8") as fh:
-            fh.write(f"# Transcription Report\n{'='*50}\n")
+            fh.write(f"# Transcription Report\n{'=' * 50}\n")
             fh.write(f"Source URL: {metadata.get('url', 'Unknown')}\n")
             fh.write(f"Title: {metadata.get('info', {}).get('title', 'Unknown')}\n")
             fh.write(
@@ -289,10 +291,10 @@ class StreamingSoundCloudDownloader:
             )
             fh.write(f"VRAM Used: {metadata.get('vram_used_gb', 0):.2f} GB\n")
             fh.write(f"Word Count: {metadata.get('transcript_length_words', 0)}\n")
-            fh.write(f"{'='*50}\n\n## Transcript\n\n{transcript}")
+            fh.write(f"{'=' * 50}\n\n## Transcript\n\n{transcript}")
         return str(transcript_file)
 
-    def _process_url(self, url: str) -> Tuple[bool, Optional[str], Dict]:
+    def _process_url(self, url: str) -> tuple[bool, str | None, dict]:
         """Download, transcribe and persist a single URL."""
         url_hash = hashlib.md5(url.encode()).hexdigest()
 
@@ -311,15 +313,13 @@ class StreamingSoundCloudDownloader:
         if not transcript:
             return False, None, metadata
 
-        safe_title = re.sub(
-            r"[^\w\s-]", "", metadata.get("info", {}).get("title", "")
-        )
+        safe_title = re.sub(r"[^\w\s-]", "", metadata.get("info", {}).get("title", ""))
         base_filename = (
             re.sub(r"[-\s]+", "-", safe_title).strip("-")
             or f"soundcloud_{url_hash[:8]}"
         )
 
-        file_path: Optional[str] = None
+        file_path: str | None = None
 
         if self.output_format in ("structured", "both"):
             record = {
@@ -333,21 +333,15 @@ class StreamingSoundCloudDownloader:
                 ),
                 "audio_size_mb": metadata.get("audio_size_mb", 0),
                 "audio_duration_seconds": metadata.get("audio_duration_seconds", 0),
-                "transcript_length_chars": metadata.get(
-                    "transcript_length_chars", 0
-                ),
-                "transcript_length_words": metadata.get(
-                    "transcript_length_words", 0
-                ),
+                "transcript_length_chars": metadata.get("transcript_length_chars", 0),
+                "transcript_length_words": metadata.get("transcript_length_words", 0),
                 "transcript_text": transcript,
             }
             self._save_structured_data(record)
             file_path = str(self.structured_data_file)
 
         if self.output_format in ("txt", "both"):
-            file_path = self._save_transcript_file(
-                transcript, metadata, base_filename
-            )
+            file_path = self._save_transcript_file(transcript, metadata, base_filename)
 
         self.transcription_log[url_hash] = {
             "url": url,
@@ -361,23 +355,23 @@ class StreamingSoundCloudDownloader:
 
     def process_date_range(
         self, profile_url: str, start_date_str: str, end_date_str: str
-    ) -> Dict:
+    ) -> dict:
         """Process every broadcast in a date range with GPU acceleration."""
         try:
             start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
             end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
-        except ValueError:
-            raise ValueError("Invalid date format. Use 'YYYY-MM-DD'")
+        except ValueError as exc:
+            raise ValueError("Invalid date format. Use 'YYYY-MM-DD'") from exc
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("GPU-Optimized SoundCloud ASR Pipeline")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"Profile: {profile_url}")
         print(f"Date Range: {start_date.date()} to {end_date.date()}")
         print(f"Device: {self.transcription_engine.device.upper()}")
         print(f"Batch Size: {self.transcription_engine.batch_size}")
         print(f"Output: {self.structured_data_file}")
-        print(f"{'='*70}\n")
+        print(f"{'=' * 70}\n")
 
         urls = generate_urls_for_range(profile_url, start_date, end_date)
 
@@ -385,7 +379,7 @@ class StreamingSoundCloudDownloader:
             print("No URLs generated for date range")
             return {"successful": [], "failed": [], "skipped": []}
 
-        results: Dict[str, List] = {"successful": [], "failed": [], "skipped": []}
+        results: dict[str, list] = {"successful": [], "failed": [], "skipped": []}
 
         with tqdm(urls, desc="Processing tracks", unit="track") as pbar:
             for date, url in pbar:
@@ -421,16 +415,16 @@ class StreamingSoundCloudDownloader:
 
                 time.sleep(0.3)  # short pause; processing is the bottleneck
 
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("Processing Complete")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         print(f"✓ Successful: {len(results['successful'])}")
         print(f"✗ Failed: {len(results['failed'])}")
 
         vram = self.transcription_engine.get_vram_usage()
         print(f"Final VRAM: {vram['allocated_gb']:.2f} GB allocated")
         print(f"Database: {self.structured_data_file}")
-        print(f"{'='*70}\n")
+        print(f"{'=' * 70}\n")
 
         return results
 
@@ -457,15 +451,15 @@ def run_batch_collection(
         use_fp16: Enable FP16 mixed precision (recommended for L4).
         verbose: Enable detailed logging.
     """
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("GPU-OPTIMIZED PRODUCTION DATA COLLECTION")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"Date Range: {start_date} to {end_date}")
     print(f"Batch Size: {batch_size_days} days")
     print(f"GPU Batch Size: {gpu_batch_size}")
     print(f"FP16 Precision: {use_fp16}")
     print(f"Output: {output_dir}")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     start = datetime.strptime(start_date, "%Y-%m-%d")
     end = datetime.strptime(end_date, "%Y-%m-%d")
@@ -475,8 +469,7 @@ def run_batch_collection(
 
     print(f"📊 Total Scope: {total_days} days")
     print(
-        f"📦 Estimated Batches: "
-        f"{(total_days + batch_size_days - 1) // batch_size_days}"
+        f"📦 Estimated Batches: {(total_days + batch_size_days - 1) // batch_size_days}"
     )
     print(f"⏱️  Estimated Time: ~{estimated_minutes / 60:.1f} hours (GPU-accelerated)\n")
 
@@ -488,9 +481,9 @@ def run_batch_collection(
     while current_start <= end:
         batch_end = min(current_start + timedelta(days=batch_size_days - 1), end)
 
-        print(f"\n{'─'*80}")
+        print(f"\n{'─' * 80}")
         print(f"🔄 BATCH {batch_num}: {current_start.date()} → {batch_end.date()}")
-        print(f"{'─'*80}")
+        print(f"{'─' * 80}")
 
         try:
             downloader = StreamingSoundCloudDownloader(
@@ -524,10 +517,10 @@ def run_batch_collection(
         current_start = batch_end + timedelta(days=1)
         batch_num += 1
 
-    print(f"\n\n{'='*80}")
+    print(f"\n\n{'=' * 80}")
     print("📊 COLLECTION SUMMARY")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"Total Successful: {total_successful}")
     print(f"Total Failed: {total_failed}")
     print(f"Database: {Path(output_dir) / 'transcriptions_database.csv'}")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")

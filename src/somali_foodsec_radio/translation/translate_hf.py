@@ -43,9 +43,9 @@ def load_model(model_name: str, model_type: str) -> tuple[Any, Any, Any]:
     if model_type == "nllb":
         device_str = "cuda" if torch.cuda.is_available() else "cpu"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSeq2SeqLM.from_pretrained(
-            model_name, torch_dtype=dtype
-        ).to(device_str)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name, torch_dtype=dtype).to(
+            device_str
+        )
         device = device_str
         print(f"Model loaded on device: {device}")
 
@@ -197,8 +197,8 @@ def batch_translate_dataframe(
     elif model_type == "madlad":
         try:
             target_prefix = NLLB_TO_MADLAD_CODE[tgt_lang]
-        except KeyError:
-            raise ValueError(f"MADLAD code for '{tgt_lang}' not defined.")
+        except KeyError as exc:
+            raise ValueError(f"MADLAD code for '{tgt_lang}' not defined.") from exc
 
     for idx, row in df_translated.iterrows():
         text = row[text_column]

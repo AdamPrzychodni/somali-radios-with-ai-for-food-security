@@ -50,7 +50,7 @@ def plot_ipc_maps(
             )
         axes = [axes]
 
-    for ax, (title, phase_column, period_dates) in zip(axes, periods):
+    for ax, (title, phase_column, period_dates) in zip(axes, periods, strict=False):
         geo_df["color"] = geo_df[phase_column].map(PHASE_COLORS)
 
         # Plot each phase separately so the legend can be controlled.

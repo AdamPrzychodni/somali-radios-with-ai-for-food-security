@@ -70,8 +70,8 @@ class TestAdjustIpcPhasesWithThreshold:
         weekly = pd.DataFrame([_weekly_row(area="Mudug", drought_warnings=5)])
         result = adjust_ipc_phases_with_threshold(geo, weekly, WEEK)
         phases = result.set_index("group_name")["overall_phase_C"]
-        assert phases["Mudug"] == 4   # 3 + 1
-        assert phases["Bay"] == 2     # untouched
+        assert phases["Mudug"] == 4  # 3 + 1
+        assert phases["Bay"] == 2  # untouched
 
     def test_sub_threshold_count_changes_nothing(self):
         geo = pd.DataFrame({"group_name": ["Mudug"], "overall_phase_C": [3]})
@@ -95,9 +95,7 @@ class TestAdjustIpcPhasesWithThreshold:
 class TestAdjustIpcPhases:
     def test_high_impact_raises_and_rainfall_lowers(self):
         geo = pd.DataFrame({"group_name": ["Mudug"], "overall_phase_C": [2]})
-        weekly = pd.DataFrame(
-            [_weekly_row(high_impact_events=2, rainfall_positives=1)]
-        )
+        weekly = pd.DataFrame([_weekly_row(high_impact_events=2, rainfall_positives=1)])
         result = adjust_ipc_phases(geo, weekly, WEEK)
         assert result.loc[0, "overall_phase_C"] == 3  # 2 + (2 - 1)
 

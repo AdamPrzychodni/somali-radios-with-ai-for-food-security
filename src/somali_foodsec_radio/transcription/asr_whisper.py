@@ -20,7 +20,13 @@ from ..logging_utils import get_logger
 logger = get_logger(__name__)
 
 WHISPER_MODEL_SIZES = [
-    "tiny", "base", "small", "medium", "large", "large-v2", "large-v3",
+    "tiny",
+    "base",
+    "small",
+    "medium",
+    "large",
+    "large-v2",
+    "large-v3",
 ]
 SOMALI_WHISPER_MODELS = {
     "somali": "steja/whisper-small-somali",
@@ -44,7 +50,9 @@ class WhisperEngine:
 
     def __init__(self, model_size: str = "small", use_gpu: bool = True):
         if model_size not in WHISPER_MODEL_SIZES:
-            logger.warning("Unknown Whisper model size '%s'; using 'small'.", model_size)
+            logger.warning(
+                "Unknown Whisper model size '%s'; using 'small'.", model_size
+            )
             model_size = "small"
         self.model_size = model_size
         self.device = _select_device(use_gpu)

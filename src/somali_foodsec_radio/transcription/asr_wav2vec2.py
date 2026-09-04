@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import io
 import re
-from typing import Dict, Optional
 
 import librosa
 import torch
@@ -37,8 +36,8 @@ class SomaliASREngine:
             use_fp16: Enable mixed precision for faster inference on L4 GPUs.
             verbose: Enable detailed logging.
         """
-        self.processor: Optional[Wav2Vec2Processor] = None
-        self.model: Optional[Wav2Vec2ForCTC] = None
+        self.processor: Wav2Vec2Processor | None = None
+        self.model: Wav2Vec2ForCTC | None = None
         self.device: str = "cpu"
         self.batch_size = batch_size
         self.use_fp16 = use_fp16
@@ -82,7 +81,7 @@ class SomaliASREngine:
                 if self.verbose:
                     print("⚠️  Running on CPU (slower)")
         except Exception as exc:
-            raise RuntimeError(f"Failed to load ASR model: {exc}")
+            raise RuntimeError(f"Failed to load ASR model: {exc}") from exc
 
     def transcribe_from_memory_batched(self, audio_data: bytes) -> str:
         """GPU-accelerated batched transcription of raw audio bytes.
@@ -112,7 +111,7 @@ class SomaliASREngine:
 
             chunks = []
             for i in range(0, len(audio), chunk_length - overlap):
-                chunk = audio[i:i + chunk_length]
+                chunk = audio[i : i + chunk_length]
                 if len(chunk) > target_sr:  # skip chunks shorter than 1 second
                     chunks.append(chunk)
 
@@ -121,7 +120,7 @@ class SomaliASREngine:
 
             transcriptions = []
             for batch_start in range(0, len(chunks), self.batch_size):
-                batch_chunks = chunks[batch_start:batch_start + self.batch_size]
+                batch_chunks = chunks[batch_start : batch_start + self.batch_size]
 
                 inputs = self.processor(
                     batch_chunks,
@@ -145,9 +144,9 @@ class SomaliASREngine:
             full_text = " ".join(transcriptions)
             return re.sub(r"\s+", " ", full_text).strip()
         except Exception as exc:
-            raise ValueError(f"Transcription failed: {exc}")
+            raise ValueError(f"Transcription failed: {exc}") from exc
 
-    def get_vram_usage(self) -> Dict[str, float]:
+    def get_vram_usage(self) -> dict[str, float]:
         """Return current GPU memory usage in GB (zeros on CPU)."""
         if self.device == "cuda":
             return {

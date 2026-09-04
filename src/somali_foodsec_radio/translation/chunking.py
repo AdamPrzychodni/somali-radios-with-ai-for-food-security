@@ -40,7 +40,7 @@ def split_into_sentences(text: str) -> list[str]:
     words = text.split()
     chunk_size = 50
     sentences = [
-        " ".join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)
+        " ".join(words[i : i + chunk_size]) for i in range(0, len(words), chunk_size)
     ]
     return [s.strip() for s in sentences if s.strip()]
 
@@ -73,7 +73,7 @@ def create_semantic_chunks(
 
         if sentence_tokens > max_tokens:
             print(
-                f"  -> Sentence {i+1} has {sentence_tokens} tokens, "
+                f"  -> Sentence {i + 1} has {sentence_tokens} tokens, "
                 f"splitting by words..."
             )
             words = sentence.split()
@@ -102,8 +102,7 @@ def create_semantic_chunks(
             overlap_start = max(0, len(current_chunk) - overlap_sentences)
             current_chunk = current_chunk[overlap_start:]
             current_tokens = sum(
-                len(tokenizer.encode(s, add_special_tokens=True))
-                for s in current_chunk
+                len(tokenizer.encode(s, add_special_tokens=True)) for s in current_chunk
             )
 
         current_chunk.append(sentence)

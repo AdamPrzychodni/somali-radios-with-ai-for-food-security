@@ -41,9 +41,7 @@ class TestCreateSemanticChunks:
     def test_long_text_splits_and_respects_token_limit(self):
         text = "alpha beta. gamma delta. epsilon zeta. eta theta."
         tok = FakeTokenizer()
-        chunks = create_semantic_chunks(
-            text, tok, max_tokens=5, overlap_sentences=1
-        )
+        chunks = create_semantic_chunks(text, tok, max_tokens=5, overlap_sentences=1)
         assert len(chunks) > 1
         for chunk_text, _, _ in chunks:
             assert len(tok.encode(chunk_text)) <= 5

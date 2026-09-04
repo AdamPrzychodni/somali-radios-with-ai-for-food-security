@@ -51,9 +51,7 @@ def aggregate_weekly_impact(feedback_matched: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def adjust_ipc_phases(
-    geo_df, weekly_impact_df: pd.DataFrame, week: pd.Timestamp
-):
+def adjust_ipc_phases(geo_df, weekly_impact_df: pd.DataFrame, week: pd.Timestamp):
     """Adjust IPC phases for *week*: high-impact events raise, rainfall lowers.
 
     Phases are clipped to the valid 1-5 range. Returns a modified copy of *geo_df*.
@@ -122,24 +120,34 @@ def plot_time_series(weekly_impact_df: pd.DataFrame, area: str) -> None:
 
     plt.figure(figsize=(14, 7))
     plt.plot(
-        area_data["week_start"], area_data["drought_warnings"],
-        label="Drought Warnings", marker="o",
+        area_data["week_start"],
+        area_data["drought_warnings"],
+        label="Drought Warnings",
+        marker="o",
     )
     plt.plot(
-        area_data["week_start"], area_data["flood_risks"],
-        label="Flood Risks", marker="o",
+        area_data["week_start"],
+        area_data["flood_risks"],
+        label="Flood Risks",
+        marker="o",
     )
     plt.plot(
-        area_data["week_start"], area_data["aid_requests"],
-        label="Aid Requests", marker="o",
+        area_data["week_start"],
+        area_data["aid_requests"],
+        label="Aid Requests",
+        marker="o",
     )
     plt.plot(
-        area_data["week_start"], area_data["livestock_diseases"],
-        label="Livestock Diseases", marker="o",
+        area_data["week_start"],
+        area_data["livestock_diseases"],
+        label="Livestock Diseases",
+        marker="o",
     )
     plt.plot(
-        area_data["week_start"], area_data["rainfall_positives"],
-        label="Positive Rainfall", marker="o",
+        area_data["week_start"],
+        area_data["rainfall_positives"],
+        label="Positive Rainfall",
+        marker="o",
     )
     plt.title(f"Weekly Feedback Signals in {area}", fontsize=16)
     plt.xlabel("Week Start", fontsize=12)

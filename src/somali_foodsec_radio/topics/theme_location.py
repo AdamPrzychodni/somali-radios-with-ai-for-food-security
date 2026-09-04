@@ -32,9 +32,7 @@ def build_theme_location_pairs(
     df = df.copy()
     df["themes"] = themes_list
     df["locations"] = df["text"].apply(extract_locations)
-    df["geography"] = df["locations"].apply(
-        lambda locs: assign_geography(locs, geo_df)
-    )
+    df["geography"] = df["locations"].apply(lambda locs: assign_geography(locs, geo_df))
     exploded = df.explode("themes")
     return exploded[["file", "date", "themes", "geography"]].rename(
         columns={"themes": "theme"}

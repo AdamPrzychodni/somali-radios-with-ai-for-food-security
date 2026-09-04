@@ -24,7 +24,9 @@ class SilentLogger:
         pass
 
 
-def get_logger(name: str = "somali_foodsec_radio", level: int = logging.INFO) -> logging.Logger:
+def get_logger(
+    name: str = "somali_foodsec_radio", level: int = logging.INFO
+) -> logging.Logger:
     """Return a console logger.
 
     Idempotent: calling it repeatedly for the same *name* will not attach duplicate

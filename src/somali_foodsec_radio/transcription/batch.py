@@ -10,8 +10,8 @@ import glob
 import json
 import os
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable
 
 
 def run_directory_batch(
@@ -59,8 +59,7 @@ def run_directory_batch(
                 break
             except Exception as exc:  # noqa: BLE001 - retry, then record the failure
                 print(
-                    f"Attempt {attempt + 1}/{retry_count} failed for "
-                    f"{filename}: {exc}"
+                    f"Attempt {attempt + 1}/{retry_count} failed for {filename}: {exc}"
                 )
                 if attempt < retry_count - 1:
                     print(f"Waiting {delay_between_failures}s before retrying...")

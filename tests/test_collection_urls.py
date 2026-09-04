@@ -18,7 +18,9 @@ class TestValidateSoundcloudUrl:
         )
 
     def test_accepts_www_and_http(self):
-        assert validate_soundcloud_url("http://www.soundcloud.com/radio-ergo/some-track")
+        assert validate_soundcloud_url(
+            "http://www.soundcloud.com/radio-ergo/some-track"
+        )
 
     def test_rejects_profile_only_url(self):
         assert not validate_soundcloud_url("https://soundcloud.com/radio-ergo")
@@ -45,22 +47,32 @@ class TestExtractDateFromUrl:
         ) == datetime(2024, 7, 1)
 
     def test_returns_none_without_date(self):
-        assert extract_date_from_url(
-            "https://soundcloud.com/radio-ergo/welcome-show"
-        ) is None
+        assert (
+            extract_date_from_url("https://soundcloud.com/radio-ergo/welcome-show")
+            is None
+        )
 
     def test_returns_none_for_invalid_month(self):
-        assert extract_date_from_url(
-            "https://soundcloud.com/radio-ergo/idaacadda-01-foo-2024"
-        ) is None
+        assert (
+            extract_date_from_url(
+                "https://soundcloud.com/radio-ergo/idaacadda-01-foo-2024"
+            )
+            is None
+        )
 
 
 class TestExtractUsername:
     def test_extracts_username(self):
-        assert extract_username_from_url("https://soundcloud.com/radio-ergo") == "radio-ergo"
+        assert (
+            extract_username_from_url("https://soundcloud.com/radio-ergo")
+            == "radio-ergo"
+        )
 
     def test_handles_trailing_slash(self):
-        assert extract_username_from_url("https://soundcloud.com/radio-ergo/") == "radio-ergo"
+        assert (
+            extract_username_from_url("https://soundcloud.com/radio-ergo/")
+            == "radio-ergo"
+        )
 
 
 class TestGenerateUrlPatterns:

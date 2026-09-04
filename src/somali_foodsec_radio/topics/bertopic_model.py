@@ -5,9 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def fit_topic_model(
-    docs: list[str], model_kwargs: dict[str, Any] | None = None
-):
+def fit_topic_model(docs: list[str], model_kwargs: dict[str, Any] | None = None):
     """Fit a BERTopic model and return primary topics plus a probability matrix.
 
     ``bertopic`` is imported lazily (it requires the ``[analysis]`` extras).

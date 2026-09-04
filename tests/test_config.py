@@ -33,8 +33,8 @@ def test_local_override_is_deep_merged(tmp_path):
     _write(tmp_path / "config.yaml", "asr:\n  batch_size: 8\n  use_fp16: true\n")
     _write(tmp_path / "config.local.yaml", "asr:\n  batch_size: 4\n")
     config = load_config(tmp_path / "config.yaml")
-    assert config["asr"]["batch_size"] == 4       # overridden
-    assert config["asr"]["use_fp16"] is True      # sibling key preserved
+    assert config["asr"]["batch_size"] == 4  # overridden
+    assert config["asr"]["use_fp16"] is True  # sibling key preserved
 
 
 def test_missing_config_raises(tmp_path):
@@ -47,7 +47,7 @@ def test_deep_merge_does_not_mutate_inputs():
     override = {"a": {"y": 99}}
     merged = _deep_merge(base, override)
     assert merged == {"a": {"x": 1, "y": 99}}
-    assert base == {"a": {"x": 1, "y": 2}}        # base untouched
+    assert base == {"a": {"x": 1, "y": 2}}  # base untouched
 
 
 def test_repo_config_yaml_loads():

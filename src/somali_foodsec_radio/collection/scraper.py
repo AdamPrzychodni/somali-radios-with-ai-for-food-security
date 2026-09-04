@@ -103,7 +103,9 @@ def collect_urls_in_date_range(
     Combines two strategies: parsing tracks linked on the profile page, and
     generating + probing candidate URLs from known date-slug patterns.
     """
-    logger.info("Searching for tracks from %s to %s", start_date.date(), end_date.date())
+    logger.info(
+        "Searching for tracks from %s to %s", start_date.date(), end_date.date()
+    )
 
     # Strategy 1: tracks already linked on the profile page.
     profile_tracks = fetch_profile_tracks(profile_url, session)

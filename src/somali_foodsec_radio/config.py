@@ -66,12 +66,12 @@ def load_config(path: str | Path | None = None) -> dict:
             f"repository root."
         )
 
-    with open(main_path, "r", encoding="utf-8") as fh:
+    with open(main_path, encoding="utf-8") as fh:
         config = yaml.safe_load(fh) or {}
 
     local_path = main_path.with_name(_LOCAL_FILE)
     if local_path.is_file():
-        with open(local_path, "r", encoding="utf-8") as fh:
+        with open(local_path, encoding="utf-8") as fh:
             local = yaml.safe_load(fh) or {}
         config = _deep_merge(config, local)
 

@@ -7,7 +7,6 @@ translating (it requires the ``[analysis]`` optional dependencies).
 from __future__ import annotations
 
 import gc
-from typing import Optional, Tuple
 
 import pandas as pd
 import torch
@@ -16,7 +15,7 @@ from .chunking import create_semantic_chunks
 from .translate_hf import batch_translate_dataframe, load_model
 
 
-def load_transcription_data(file_path: str) -> Optional[pd.DataFrame]:
+def load_transcription_data(file_path: str) -> pd.DataFrame | None:
     """Load transcription data from a CSV file into a DataFrame (``None`` if missing)."""
     try:
         df = pd.read_csv(file_path)
@@ -33,9 +32,9 @@ def run_translation_pipeline(
     model_type: str,
     src_lang: str = "som_Latn",
     tgt_lang: str = "eng_Latn",
-    num_rows_to_translate: Optional[int] = None,
+    num_rows_to_translate: int | None = None,
     text_column: str = "transcript_text",
-) -> Optional[Tuple[pd.DataFrame, str]]:
+) -> tuple[pd.DataFrame, str] | None:
     """Load a model, translate *text_column*, free VRAM, and return the result.
 
     Returns ``(translated_dataframe, new_column_name)`` on success, ``None`` on failure.
@@ -103,9 +102,7 @@ def run_translation_pipeline(
         print("=" * 80)
         if not test_df_translated.empty:
             for idx, row in test_df_translated.iterrows():
-                original = (
-                    str(row[text_column]) if pd.notna(row[text_column]) else ""
-                )
+                original = str(row[text_column]) if pd.notna(row[text_column]) else ""
                 translated = (
                     str(row[new_col_name]) if pd.notna(row[new_col_name]) else ""
                 )

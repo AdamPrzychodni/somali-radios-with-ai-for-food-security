@@ -29,9 +29,7 @@ def transcribe_with_elevenlabs(
 
     api_key = api_key or os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
-        raise EnvironmentError(
-            "ELEVENLABS_API_KEY not found. Set it in your .env file."
-        )
+        raise OSError("ELEVENLABS_API_KEY not found. Set it in your .env file.")
 
     client = ElevenLabs(api_key=api_key)
     with open(audio_path, "rb") as fh:

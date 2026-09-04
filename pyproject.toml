@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "somali-foodsec-radio"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI pipeline turning Somali radio broadcasts (Radio Ergo) into food-security insights."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Adam Przychodni" }]
 keywords = ["food-security", "speech-to-text", "somali", "radio", "ipc", "humanitarian"]
@@ -15,58 +15,68 @@ keywords = ["food-security", "speech-to-text", "somali", "radio", "ipc", "humani
 # Core dependencies: light, broadly needed, enough to import the package and run the
 # pure-logic test suite. The heavy ML/geo stacks live in the optional groups below.
 dependencies = [
-    "numpy",
-    "pandas",
-    "pyyaml",
-    "python-dateutil",
-    "python-dotenv",
-    "requests",
-    "beautifulsoup4",
-    "tqdm",
-    "rapidfuzz",
-    "matplotlib",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "python-dateutil>=2.9",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "tqdm>=4.66",
+    "rapidfuzz>=3.6",
+    "matplotlib>=3.8",
 ]
 
+# Upper bounds below are on the libraries whose releases change model *output*, not just
+# their API. uv.lock is what pins an exact reproducible set; these bounds stop a resolver
+# from silently jumping a major version that would invalidate recorded results.
 [project.optional-dependencies]
 # Audio collection + speech-to-text.
 asr = [
-    "torch",
-    "transformers",
-    "librosa",
-    "soundfile",
-    "pydub",
-    "yt-dlp",
-    "openai-whisper",
+    "torch>=2.2,<3",
+    "transformers>=4.40,<5",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+    "pydub>=0.25",
+    "yt-dlp>=2024.1",
+    "openai-whisper>=20231117",
 ]
 # Translation, topic modelling, geospatial work and PDF feedback parsing.
 analysis = [
-    "transformers",
-    "sentencepiece",
-    "sentence-transformers",
-    "bertopic",
-    "spacy",
-    "scikit-learn",
-    "geopandas",
-    "pdfplumber",
+    "transformers>=4.40,<5",
+    "sentencepiece>=0.2",
+    "sentence-transformers>=3.0,<6",
+    "bertopic>=0.16,<1",
+    "umap-learn>=0.5",
+    "spacy>=3.7,<4",
+    "scikit-learn>=1.4",
+    "geopandas>=1.0",
+    "pdfplumber>=0.11",
 ]
 # External API clients (require keys in .env).
 apis = [
-    "google-genai",
-    "elevenlabs",
+    "google-genai>=1.0",
+    "elevenlabs>=1.0",
 ]
 # Running the Jupyter notebooks.
 notebooks = [
-    "jupyter",
-    "ipython",
-    "ipykernel",
-]
-# Development / testing.
-dev = [
-    "pytest",
+    "jupyter>=1.0",
+    "ipython>=8.20",
+    "ipykernel>=6.29",
 ]
 # Everything at once.
 all = [
-    "somali-foodsec-radio[asr,analysis,apis,notebooks,dev]",
+    "somali-foodsec-radio[asr,analysis,apis,notebooks]",
+]
+
+# Development tooling. Not shipped with the package; `uv sync` installs it by default.
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "pre-commit>=3.7",
+    "nbstripout>=0.7",
 ]
 
 [project.scripts]
@@ -78,3 +88,25 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = ["notebooks/02_asr_model_comparison.ipynb"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "NPY",  # numpy
+    "PD",   # pandas-vet
+]
+ignore = [
+    "E501",   # line length is enforced by the formatter, not the linter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]

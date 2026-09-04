@@ -154,7 +154,9 @@ class SoundCloudDownloader:
         self.raw_data_dir.mkdir(parents=True, exist_ok=True)
         self.session = create_session()
         self._logged_output_dir = False
-        logger.info("Initialized downloader. Base data directory: %s", self.raw_data_dir)
+        logger.info(
+            "Initialized downloader. Base data directory: %s", self.raw_data_dir
+        )
 
     def create_output_directory(self, dir_name: str | None = None) -> Path:
         """Return the ``data/raw/`` directory, ensuring it exists.
@@ -185,7 +187,7 @@ class SoundCloudDownloader:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
             end_dt = datetime.strptime(end_date, "%Y-%m-%d")
         except ValueError as exc:
-            raise ValueError(f"Invalid date format. Use YYYY-MM-DD: {exc}")
+            raise ValueError(f"Invalid date format. Use YYYY-MM-DD: {exc}") from exc
 
         output_dir = self.create_output_directory(output_dir_name)
         urls = collect_urls_in_date_range(profile_url, start_dt, end_dt, self.session)

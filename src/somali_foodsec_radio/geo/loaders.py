@@ -42,9 +42,7 @@ def load_transcripts(transcripts_dir: str) -> pd.DataFrame:
     records: list[dict[str, Any]] = []
     for txt_path in sorted(Path(transcripts_dir).glob("*.txt")):
         match = re.search(r"(\d{1,2}-[A-Za-z]{3}-\d{4})", txt_path.name)
-        date = (
-            pd.to_datetime(match.group(1), format="%d-%b-%Y") if match else pd.NaT
-        )
+        date = pd.to_datetime(match.group(1), format="%d-%b-%Y") if match else pd.NaT
         text = txt_path.read_text(encoding="utf-8")
         records.append({"file": txt_path.name, "date": date, "text": text})
     return pd.DataFrame(records)
