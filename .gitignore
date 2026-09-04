@@ -6,13 +6,15 @@
 # Local config overrides (committed template: config/config.local.yaml.example)
 config/config.local.yaml
 
-# Google Cloud credentials (CRITICAL - never commit!)
-*.json
-service-account-*.json
+# Credentials (CRITICAL - never commit!). Deliberately NOT a blanket `*.json`:
+# test fixtures, gold sets and GeoJSON must stay committable.
+service-account*.json
 gcs-key.json
 credentials.json
 *-credentials.json
 *-key.json
+*-secret.json
+client_secret*.json
 
 # Downloaded content
 downloads/
